@@ -1,9 +1,4 @@
 // Servant modules
-pub mod coordinator;
-pub mod worker;
-pub mod warden;
-pub mod contractor;
-pub mod speaker;
-
-// Re-export common types
-// pub use coordinator::Coordinator;
+// These are implemented as separate crates in `crates/` (e.g. `crates/servant-coordinator`).
+// The host loads them as Wasm binaries.
+// This module is reserved for shared servant logic or re-exports if needed in the future.

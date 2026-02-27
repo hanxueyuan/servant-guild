@@ -1,5 +1,5 @@
 [package]
-name = "servant-coordinator"
+name = "servant-worker"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,4 +8,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 servant-sdk = { path = "../servant-sdk" }
-wit-bindgen = "0.28.0"
+wit-bindgen = "0.36.0"
+serde_json = "1.0"

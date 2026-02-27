@@ -128,7 +128,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         let result = run_tool_call_loop(
             state.provider.as_ref(),
             &mut history,
-            state.tools_registry_exec.as_ref(),
+            state.tools.as_ref(),
             state.observer.as_ref(),
             &provider_label,
             &state.model,
@@ -148,7 +148,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         match result {
             Ok(response) => {
                 let safe_response =
-                    sanitize_ws_response(&response, state.tools_registry_exec.as_ref());
+                    sanitize_ws_response(&response, state.tools.as_ref());
                 // Add assistant response to history
                 history.push(ChatMessage::assistant(&safe_response));
 

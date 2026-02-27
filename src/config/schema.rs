@@ -2096,6 +2096,10 @@ pub struct RuntimeConfig {
     #[serde(default)]
     pub docker: DockerRuntimeConfig,
 
+    /// Wasm runtime settings (used when `kind = "wasm"`).
+    #[serde(default)]
+    pub wasm: WasmRuntimeConfig,
+
     /// Global reasoning override for providers that expose explicit controls.
     /// - `None`: provider default behavior
     /// - `Some(true)`: request reasoning/thinking when supported
@@ -2134,6 +2138,59 @@ pub struct DockerRuntimeConfig {
     /// Optional workspace root allowlist for Docker mount validation.
     #[serde(default)]
     pub allowed_workspace_roots: Vec<String>,
+}
+
+/// Wasm runtime configuration (`[runtime.wasm]` section).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WasmRuntimeConfig {
+    /// Max fuel (instructions) per execution. Default: 100M.
+    #[serde(default = "default_wasm_fuel_limit")]
+    pub fuel_limit: u64,
+
+    /// Max memory in MB. Default: 512MB.
+    #[serde(default = "default_wasm_memory_limit_mb")]
+    pub memory_limit_mb: u64,
+
+    /// Allow read access to workspace. Default: true.
+    #[serde(default = "default_true")]
+    pub allow_workspace_read: bool,
+
+    /// Allow write access to workspace. Default: true.
+    #[serde(default = "default_true")]
+    pub allow_workspace_write: bool,
+
+    /// Directory containing Wasm tools (relative to workspace). Default: "tools".
+    #[serde(default = "default_wasm_tools_dir")]
+    pub tools_dir: String,
+
+    /// Audit logging configuration for Wasm runtime.
+    #[serde(default)]
+    pub audit: crate::config::AuditConfig,
+}
+
+fn default_wasm_fuel_limit() -> u64 {
+    100_000_000
+}
+
+fn default_wasm_memory_limit_mb() -> u64 {
+    512
+}
+
+fn default_wasm_tools_dir() -> String {
+    "tools".into()
+}
+
+impl Default for WasmRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            fuel_limit: default_wasm_fuel_limit(),
+            memory_limit_mb: default_wasm_memory_limit_mb(),
+            allow_workspace_read: true,
+            allow_workspace_write: true,
+            tools_dir: default_wasm_tools_dir(),
+            audit: crate::config::AuditConfig::default(),
+        }
+    }
 }
 
 fn default_runtime_kind() -> String {
@@ -2175,10 +2232,56 @@ impl Default for RuntimeConfig {
         Self {
             kind: default_runtime_kind(),
             docker: DockerRuntimeConfig::default(),
+            wasm: WasmRuntimeConfig::default(),
             reasoning_enabled: None,
         }
     }
 }
+
+/// Configuration for syscall anomaly detection.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SyscallAnomalyConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub baseline_syscalls: Vec<String>,
+    #[serde(default = "default_log_path")]
+    pub log_path: String,
+    #[serde(default)]
+    pub alert_on_unknown_syscall: bool,
+    #[serde(default)]
+    pub strict_mode: bool,
+    #[serde(default = "default_max_denied")]
+    pub max_denied_events_per_minute: u32,
+    #[serde(default = "default_max_total")]
+    pub max_total_events_per_minute: u32,
+    #[serde(default = "default_alert_cooldown")]
+    pub alert_cooldown_secs: u64,
+    #[serde(default = "default_max_alerts")]
+    pub max_alerts_per_minute: u32,
+}
+
+impl Default for SyscallAnomalyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            baseline_syscalls: vec!["read".into(), "write".into(), "openat".into(), "close".into(), "execve".into()], // Minimal default for now
+            log_path: default_log_path(),
+            alert_on_unknown_syscall: false,
+            strict_mode: false,
+            max_denied_events_per_minute: default_max_denied(),
+            max_total_events_per_minute: default_max_total(),
+            alert_cooldown_secs: default_alert_cooldown(),
+            max_alerts_per_minute: default_max_alerts(),
+        }
+    }
+}
+
+fn default_log_path() -> String { "syscall_anomalies.jsonl".into() }
+fn default_max_denied() -> u32 { 10 }
+fn default_max_total() -> u32 { 1000 }
+fn default_alert_cooldown() -> u64 { 60 }
+fn default_max_alerts() -> u32 { 10 }
 
 // ── Reliability / supervision ────────────────────────────────────
 

@@ -47,7 +47,6 @@ impl WasmRuntime {
         }
     }
 
-    /// Check if the WASM runtime feature is available in this build.
     pub fn is_available() -> bool {
         cfg!(feature = "runtime-wasm")
     }
@@ -70,7 +69,7 @@ impl WasmRuntime {
             component::{Component, Linker},
             Config, Engine, Store,
         };
-        use wasmtime_wasi::preview2::{Table, WasiCtxBuilder};
+        use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
         use crate::runtime::state::HostState;
         use crate::runtime::bindings::Servant;
 
@@ -82,16 +81,42 @@ impl WasmRuntime {
         let engine = Engine::new(&config)?;
 
         // 2. Prepare WASI Context
-        let mut table = Table::new();
-        let wasi = WasiCtxBuilder::new()
-            .inherit_stdout()
-            .inherit_stderr()
-            .build(); // TODO: Add filesystem caps based on config
+        let mut wasi_builder = WasiCtxBuilder::new();
+        wasi_builder.inherit_stdout().inherit_stderr();
+
+        if self.config.allow_workspace_read {
+            wasi_builder.preopened_dir(workspace_dir, ".", DirPerms::READ, FilePerms::READ)?;
+        }
+        if self.config.allow_workspace_write {
+             let (dir_perms, file_perms) = if self.config.allow_workspace_write {
+                 (DirPerms::all(), FilePerms::all())
+             } else {
+                 (DirPerms::READ, FilePerms::READ)
+             };
+             wasi_builder.preopened_dir(workspace_dir, ".", dir_perms, file_perms)?;
+        }
+
+        let wasi = wasi_builder.build();
 
         // 3. Define Host State
+        // We need to inject the real provider/tools/audit_logger here.
+        // For now, we create stubs or use the ones passed (TODO: Update execute_component signature to take HostState deps)
+        let provider = std::sync::Arc::new(crate::providers::mock::MockProvider); // Stub
+        let tools = std::sync::Arc::new(std::collections::HashMap::new()); // Stub
+        let audit_logger = std::sync::Arc::new(crate::safety::audit::AuditLogger::new(
+            self.config.audit.clone(),
+            workspace_dir.join("audit_logs"),
+        )?);
+
+        // We need a ResourceTable for WasiCtx (preview2)
+        // wasmtime-wasi 28.0 includes ResourceTable in WasiCtx or separate?
+        // It seems WasiCtxBuilder builds WasiCtx.
+        // Wait, HostState expects (WasiCtx, Table, ...)
+        let table = wasmtime::component::ResourceTable::new();
+
         let mut store = Store::new(
             &engine,
-            HostState::new(wasi, table),
+            HostState::new(wasi, table, provider, tools, audit_logger),
         );
         store.set_fuel(self.config.fuel_limit)?;
 
@@ -103,20 +128,20 @@ impl WasmRuntime {
 
         // 5. Link Host Functions
         let mut linker = Linker::new(&engine);
-        wasmtime_wasi::preview2::command::add_to_linker(&mut linker)?;
+        wasmtime_wasi::add_to_linker_async(&mut linker)?;
         
         // Link our custom bridges (LLM, Tools, Safety, etc.)
         Servant::add_to_linker(&mut linker, |state: &mut HostState| state)?;
 
         // 6. Instantiate
-        let (servant, _) = Servant::instantiate_async(&mut store, &component, &linker).await?;
+        let servant = Servant::instantiate_async(&mut store, &component, &linker).await?;
 
         // 7. Execute handle-task
         let result = servant
             .call_handle_task(&mut store, task_id, input)
             .await?;
 
-        let fuel_consumed = store.fuel_consumed().unwrap_or(0);
+        let fuel_consumed = store.get_fuel().unwrap_or(0);
 
         match result {
             Ok(output) => Ok(WasmExecutionResult {
@@ -146,6 +171,13 @@ impl WasmRuntime {
             module_name
         )
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WasmCapabilities {
+    None,
+    Restricted,
+    Full,
 }
 
 impl RuntimeAdapter for WasmRuntime {

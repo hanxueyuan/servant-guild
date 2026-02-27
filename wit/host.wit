@@ -18,7 +18,7 @@ interface llm {
     record completion-request {
         model: string,
         messages: list<message>,
-        temperature: option<float32>,
+        temperature: option<f32>,
         max-tokens: option<u32>,
         tools: list<tool-definition>,
     }
@@ -56,13 +56,13 @@ interface llm {
     chat: func(req: completion-request) -> result<completion-response, string>;
     
     // Embedding generation
-    embed: func(req: embedding-request) -> result<list<float32>, string>;
+    embed: func(req: embedding-request) -> result<list<f32>, string>;
 }
 
 // --- Tool Capability ---
 interface tools {
     // List available tools for the servant
-    list: func() -> result<list<tool-desc>, string>;
+    list-tools: func() -> result<list<tool-desc>, string>;
 
     // Execute a specific tool
     execute: func(name: string, args: string) -> result<string, string>;
@@ -83,10 +83,10 @@ interface safety {
     }
 
     // Log an audit event
-    audit-log: func(action: string, resource: string, result: string, severity: severity);
+    audit-log: func(action: string, target-resource: string, outcome: string, severity: severity);
 
     // Request permission for a sensitive action (Human-in-the-loop)
-    request-permission: func(action: string, resource: string) -> result<bool, string>;
+    request-permission: func(action: string, target-resource: string) -> result<bool, string>;
 }
 
 // --- Memory Capability ---
@@ -101,7 +101,7 @@ interface memory {
     
     record memory-result {
         content: string,
-        score: float32,
+        score: f32,
         metadata: string, // JSON string
     }
 }

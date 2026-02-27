@@ -1,7 +1,7 @@
 # AGENTS.md — ZeroClaw 智能体工程协议
 
 本文档定义了本仓库中编码智能体的默认工作协议。
-范围：整个仓库。
+范围：整个仓库。https://github.com/hanxueyuan/servant-guild.git
 
 ## 1) 项目快照（必读）
 

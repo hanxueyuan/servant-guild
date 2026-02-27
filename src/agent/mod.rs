@@ -5,9 +5,9 @@ pub mod dispatcher;
 pub mod loop_;
 pub mod memory_loader;
 pub mod prompt;
-pub mod research;
-
-#[cfg(test)]
+// pub mod research;
+//
+// #[cfg(test)]
 mod tests;
 
 #[allow(unused_imports)]

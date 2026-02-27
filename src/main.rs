@@ -162,6 +162,29 @@ enum Commands {
         memory: Option<String>,
     },
 
+    /// Run a Wasm Servant component
+    #[command(long_about = "\
+Run a Wasm Servant component.
+
+Executes a Wasm component from the configured tools directory.
+This is the primary way to launch ServantGuild agents.
+
+Examples:
+  zeroclaw run-servant coordinator
+  zeroclaw run-servant worker --task-id task-123 --input '{\"cmd\":\"ls\"}'")]
+    RunServant {
+        /// Name of the servant module (without .wasm extension)
+        name: String,
+
+        /// Task ID (optional, defaults to random UUID)
+        #[arg(long)]
+        task_id: Option<String>,
+
+        /// Input payload (optional, defaults to empty JSON object)
+        #[arg(long, default_value = "{}")]
+        input: String,
+    },
+
     /// Start the AI agent loop
     #[command(long_about = "\
 Start the AI agent loop.
@@ -675,6 +698,15 @@ async fn main() -> Result<()> {
         }
         std::env::set_var("ZEROCLAW_CONFIG_DIR", config_dir);
     }
+    
+    // Set default workspace if not set
+    if std::env::var("ZEROCLAW_WORKSPACE").is_err() {
+        let home = directories::UserDirs::new()
+            .context("Could not determine user home directory")?
+            .home_dir()
+            .join(".zeroclaw");
+        std::env::set_var("ZEROCLAW_WORKSPACE", home);
+    }
 
     // Completions must remain stdout-only and should not load config or initialize logging.
     // This avoids warnings/log lines corrupting sourced completion scripts.
@@ -750,6 +782,19 @@ async fn main() -> Result<()> {
     // All other commands need config loaded first
     let mut config = Config::load_or_init().await?;
     config.apply_env_overrides();
+    
+    // Initialize Safety Core (Prudent Agency)
+    let audit_logger = std::sync::Arc::new(
+        security::audit::AuditLogger::new(
+            config.workspace_dir.join("audit_logs")
+        )?
+    );
+    let _snapshot_manager = std::sync::Arc::new(
+        security::snapshot::SnapshotManager::new(
+            config.workspace_dir.join("snapshots")
+        )
+    );
+    
     observability::runtime_trace::init_from_config(&config.observability, &config.workspace_dir);
     if config.security.otp.enabled {
         let config_dir = config
@@ -768,6 +813,36 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Onboard { .. } => unreachable!(),
         Commands::Completions { .. } => unreachable!(),
+
+        Commands::RunServant { name, task_id, input } => {
+            let runtime = runtime::wasm::WasmRuntime::new(config.runtime.wasm.clone());
+            let workspace = config.workspace_dir.clone();
+            let task_id = task_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            
+            info!("🚀 Launching Servant: {} (Task: {})", name, task_id);
+            
+            // TODO: Inject AuditLogger into Runtime once WasmRuntime supports it
+            // For now, we just log the attempt
+            audit_logger.log(&security::audit::AuditEvent::new(
+                security::audit::AuditEventType::ServantAction
+            ).with_actor("host".to_string(), None, None)
+             .with_resource_action("launch_servant", &name))?;
+
+            match runtime.execute_component(&name, &task_id, &input, &workspace).await {
+                Ok(result) => {
+                    println!("Servant Execution Result:");
+                    println!("-------------------------");
+                    println!("Output: {}", result.output);
+                    println!("Fuel:   {}", result.fuel_consumed);
+                    println!("Exit:   {}", result.exit_code);
+                }
+                Err(e) => {
+                    eprintln!("Servant Execution Failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+            Ok(())
+        }
 
         Commands::Agent {
             message,
