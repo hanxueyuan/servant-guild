@@ -21,9 +21,9 @@ The foundation of the ServantGuild is a secure, efficient Wasm runtime based on 
     - [ ] **LLM Trait Bridge**: Expose `src/providers` to Wasm guests via WIT.
     - [ ] **Tool Trait Bridge**: Expose `src/tools` to Wasm guests via WIT.
     - [ ] **Safety Layer Integration**: Ensure all Guest operations pass through `src/safety`.
-- [ ] **Guest SDK (`crates/zeroclaw-sdk`)**
-    - [ ] Create a Rust crate for convenient Wasm guest development.
-    - [ ] Wrap generated WIT bindings in idiomatic Rust APIs.
+- [x] **Guest SDK (`crates/servant-sdk`)**
+    - [x] Create a Rust crate for convenient Wasm guest development.
+    - [x] Wrap generated WIT bindings in idiomatic Rust APIs.
 
 ## 2. Safety & Security Core (Prudent Agency)
 
@@ -47,9 +47,9 @@ Before any agent can act, the safety mechanisms must be in place.
 
 Develop the initial Wasm modules for the core roles.
 
-- [ ] **Coordinator (The Brain)**
-    - [ ] Implement basic task dispatch logic.
-    - [ ] Connect to Host LLM interface.
+- [x] **Coordinator (The Brain)**
+    - [x] Implement basic task dispatch logic (Prototype created).
+    - [x] Connect to Host LLM interface (via SDK).
 - [ ] **Worker (The Hands)**
     - [ ] Implement tool execution logic.
     - [ ] Connect to Host Tools interface.
