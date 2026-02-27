@@ -1,0 +1,135 @@
+package zeroclaw:host;
+
+// --- LLM Capability ---
+interface llm {
+    enum role {
+        system,
+        user,
+        assistant,
+        tool
+    }
+
+    record message {
+        role: role,
+        content: string,
+        name: option<string>, // For tool results or specific user names
+    }
+
+    record completion-request {
+        model: string,
+        messages: list<message>,
+        temperature: option<float32>,
+        max-tokens: option<u32>,
+        tools: list<tool-definition>,
+    }
+
+    record tool-definition {
+        name: string,
+        description: string,
+        parameters: string, // JSON Schema string
+    }
+
+    record completion-response {
+        content: option<string>,
+        tool-calls: list<tool-call>,
+        usage: usage-stats,
+    }
+
+    record tool-call {
+        id: string,
+        name: string,
+        arguments: string, // JSON string
+    }
+
+    record usage-stats {
+        prompt-tokens: u32,
+        completion-tokens: u32,
+        total-tokens: u32,
+    }
+
+    record embedding-request {
+        model: string,
+        input: string,
+    }
+
+    // Chat completion
+    chat: func(req: completion-request) -> result<completion-response, string>;
+    
+    // Embedding generation
+    embed: func(req: embedding-request) -> result<list<float32>, string>;
+}
+
+// --- Tool Capability ---
+interface tools {
+    // List available tools for the servant
+    list: func() -> result<list<tool-desc>, string>;
+
+    // Execute a specific tool
+    execute: func(name: string, args: string) -> result<string, string>;
+
+    record tool-desc {
+        name: string,
+        description: string,
+        parameters: string, // JSON Schema
+    }
+}
+
+// --- Safety & Audit Capability ---
+interface safety {
+    enum severity {
+        info,
+        warning,
+        critical
+    }
+
+    // Log an audit event
+    audit-log: func(action: string, resource: string, result: string, severity: severity);
+
+    // Request permission for a sensitive action (Human-in-the-loop)
+    request-permission: func(action: string, resource: string) -> result<bool, string>;
+}
+
+// --- Memory Capability ---
+interface memory {
+    // Short-term Key-Value storage
+    get: func(key: string) -> result<option<string>, string>;
+    set: func(key: string, value: string) -> result<_, string>;
+    delete: func(key: string) -> result<_, string>;
+
+    // Long-term Vector search
+    search: func(query: string, limit: u32) -> result<list<memory-result>, string>;
+    
+    record memory-result {
+        content: string,
+        score: float32,
+        metadata: string, // JSON string
+    }
+}
+
+// --- Consensus Capability ---
+interface consensus {
+    record proposal {
+        id: string,
+        title: string,
+        description: string,
+        proposer: string,
+    }
+
+    // Submit a proposal for voting
+    propose: func(title: string, description: string) -> result<string, string>;
+
+    // Cast a vote
+    vote: func(proposal-id: string, approve: bool, reason: string) -> result<_, string>;
+}
+
+// --- The Servant World ---
+world servant {
+    import llm;
+    import tools;
+    import safety;
+    import memory;
+    import consensus;
+    
+    // Servant entry point
+    export handle-task: func(task-id: string, input: string) -> result<string, string>;
+}

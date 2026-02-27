@@ -1,0 +1,22 @@
+@startuml component
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+Container_Boundary(master, "Master Daemon") {
+    Component(gateway, "Gateway", "Axum", "API Entry Point, Auth, Rate Limiting")
+    Component(scheduler, "Scheduler", "Rust", "Task Queue, Dispatcher")
+    Component(runtime, "Runtime Manager", "Wasmtime", "Wasm Module Loading, Instantiation, Isolation")
+    Component(bus, "Message Bus", "Tokio MPSC", "Internal Communication")
+    Component(host_funcs, "Host Functions", "Rust", "File I/O, Network, Hardware Access")
+    Component(safety, "Safety Module", "Rust", "Audit Logging, Snapshot, Rollback")
+}
+
+Container(servant, "Servant (Wasm)", "Wasm Module", "Business Logic")
+
+Rel(gateway, scheduler, "Submits Task")
+Rel(scheduler, bus, "Dispatches Event")
+Rel(bus, runtime, "Triggers Execution")
+Rel(runtime, servant, "Runs")
+Rel(servant, host_funcs, "Invokes Capability")
+Rel(host_funcs, safety, "Checks Permission/Audits")
+
+@enduml

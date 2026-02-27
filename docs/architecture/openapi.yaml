@@ -1,0 +1,232 @@
+openapi: 3.1.0
+info:
+  title: ServantGuild API
+  version: 1.1.0
+  description: API for managing the ServantGuild autonomous multi-agent system.
+servers:
+  - url: http://localhost:8080/v1
+    description: Local development server
+paths:
+  /agents:
+    get:
+      summary: List all agents
+      operationId: listAgents
+      responses:
+        '200':
+          description: A list of agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Agent'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      summary: Create a new agent
+      operationId: createAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentCreate'
+      responses:
+        '201':
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /agents/{agentId}:
+    get:
+      summary: Get agent details
+      operationId: getAgent
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tasks:
+    post:
+      summary: Submit a task
+      operationId: submitTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreate'
+      responses:
+        '202':
+          description: Task accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+  /proposals:
+    post:
+      summary: Submit a proposal for voting
+      operationId: submitProposal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposalCreate'
+      responses:
+        '201':
+          description: Proposal created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Proposal'
+  /audit:
+    get:
+      summary: Query audit logs
+      operationId: queryAudit
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: List of audit logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLog'
+
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 400
+        message:
+          type: string
+          example: "Invalid input"
+        trace_id:
+          type: string
+          format: uuid
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [COORDINATOR, CONTRACTOR, SPEAKER, WARDEN, WORKER, EPHEMERAL]
+        status:
+          type: string
+          enum: [IDLE, BUSY, OFFLINE, MAINTENANCE]
+        config:
+          type: object
+    AgentCreate:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [EPHEMERAL]
+        config:
+          type: object
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, RUNNING, COMPLETED, FAILED, CANCELLED]
+        result:
+          type: object
+    TaskCreate:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+    Proposal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        status:
+          type: string
+          enum: [DRAFT, VOTING, APPROVED, REJECTED, EXECUTED]
+        votes:
+          type: array
+          items:
+            type: object
+            properties:
+              agent_id:
+                type: string
+              decision:
+                type: string
+                enum: [APPROVE, REJECT, ABSTAIN]
+    ProposalCreate:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+    AuditLog:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        actor:
+          type: string
+        action:
+          type: string
+        resource:
+          type: string
+        result:
+          type: string
+          enum: [SUCCESS, FAILURE, BLOCKED]
+  responses:
+    BadRequest:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Not Found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

@@ -1,0 +1,16 @@
+@startuml c4_context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+Person(user, "User", "Developer, Operator, or End User")
+System(servant_guild, "ServantGuild System", "Autonomous Multi-Agent System")
+
+System_Ext(github, "GitHub", "Code Repository & CI/CD")
+System_Ext(llm, "LLM Providers", "OpenAI, Anthropic, etc.")
+System_Ext(tools, "External Tools", "Web Search, Shell, Filesystem")
+
+Rel(user, servant_guild, "Interacts with", "CLI/Web")
+Rel(servant_guild, github, "Pulls code, Pushes releases", "HTTPS")
+Rel(servant_guild, llm, "Sends prompts, Receives completions", "HTTPS")
+Rel(servant_guild, tools, "Executes commands", "Local/Network")
+
+@enduml

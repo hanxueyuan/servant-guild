@@ -1,0 +1,46 @@
+@startuml prudent_agency_flow
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Sequence.puml
+
+participant "Worker Servant (Wasm)" as Worker
+participant "Host Runtime" as Host
+participant "Safety Module" as Safety
+participant "Warden Servant" as Warden
+database "Audit Log" as DB
+database "Snapshot Store" as Snap
+
+Worker -> Host: Request: execute_tool("rm -rf /tmp/data")
+activate Host
+
+Host -> Safety: check_permission("worker", "fs_delete")
+activate Safety
+
+Safety -> DB: log_intent("worker", "fs_delete", "/tmp/data")
+Safety -> Warden: request_approval("fs_delete")
+activate Warden
+
+Warden -> Safety: approve()
+deactivate Warden
+
+Safety -> Snap: create_snapshot("/tmp/data")
+activate Snap
+Snap --> Safety: snapshot_id
+deactivate Snap
+
+Safety --> Host: allow(snapshot_id)
+deactivate Safety
+
+Host -> Host: perform_fs_delete("/tmp/data")
+
+alt Success
+    Host -> Safety: report_success()
+    Safety -> DB: log_success()
+else Failure
+    Host -> Safety: report_failure(error)
+    Safety -> Snap: restore_snapshot(snapshot_id)
+    Safety -> DB: log_failure_and_rollback()
+end
+
+Host --> Worker: Result (Success/Error)
+deactivate Host
+
+@enduml

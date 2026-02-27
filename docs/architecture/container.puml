@@ -1,0 +1,44 @@
+@startuml container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+Person(user, "User", "Developer, Operator, or End User")
+
+System_Boundary(servant_guild, "ServantGuild System") {
+    Container(cli, "CLI", "Rust", "Command Line Interface")
+    Container(master, "Master Daemon", "Rust", "Host Process, Wasm Runtime, Message Router")
+    
+    ContainerDb(db, "Database", "PostgreSQL", "Stores Agent Profiles, Audit Logs, Tasks")
+    ContainerDb(cache, "Cache", "Redis", "Stores Session State, Ephemeral Data")
+
+    Container(coordinator, "Coordinator Servant", "Wasm", "Task Distribution & Coordination")
+    Container(contractor, "Contractor Servant", "Wasm", "Lifecycle & Config Management")
+    Container(speaker, "Speaker Servant", "Wasm", "Consensus & Voting")
+    Container(warden, "Warden Servant", "Wasm", "Security Audit & Monitoring")
+    Container(worker, "Worker Servant", "Wasm", "Task Execution & Tool Usage")
+}
+
+System_Ext(github, "GitHub", "Code Repository")
+System_Ext(llm, "LLM Providers", "AI Inference")
+
+Rel(user, cli, "Uses", "Terminal")
+Rel(cli, master, "Sends Commands", "gRPC/HTTP")
+
+Rel(master, db, "Reads/Writes", "SQL")
+Rel(master, cache, "Reads/Writes", "RESP")
+
+Rel(master, coordinator, "Hosts/Manages", "Wasmtime")
+Rel(master, contractor, "Hosts/Manages", "Wasmtime")
+Rel(master, speaker, "Hosts/Manages", "Wasmtime")
+Rel(master, warden, "Hosts/Manages", "Wasmtime")
+Rel(master, worker, "Hosts/Manages", "Wasmtime")
+
+Rel(coordinator, master, "Calls Host Functions", "Wasm Import")
+Rel(contractor, master, "Calls Host Functions", "Wasm Import")
+Rel(speaker, master, "Calls Host Functions", "Wasm Import")
+Rel(warden, master, "Calls Host Functions", "Wasm Import")
+Rel(worker, master, "Calls Host Functions", "Wasm Import")
+
+Rel(contractor, github, "Pulls/Pushes", "HTTPS (via Host)")
+Rel(worker, llm, "Inference", "HTTPS (via Host)")
+
+@enduml

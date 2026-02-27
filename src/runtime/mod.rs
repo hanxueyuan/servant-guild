@@ -3,6 +3,13 @@ pub mod native;
 pub mod traits;
 pub mod wasm;
 
+#[cfg(feature = "runtime-wasm")]
+pub mod bindings;
+#[cfg(feature = "runtime-wasm")]
+pub mod state;
+#[cfg(feature = "runtime-wasm")]
+pub mod bridges;
+
 pub use docker::DockerRuntime;
 pub use native::NativeRuntime;
 pub use traits::RuntimeAdapter;

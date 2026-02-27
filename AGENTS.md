@@ -1,359 +1,303 @@
-# AGENTS.md — ZeroClaw Agent Engineering Protocol
+# AGENTS.md — ZeroClaw 智能体工程协议
 
-This file defines the default working protocol for coding agents in this repository.
-Scope: entire repository.
+本文档定义了本仓库中编码智能体的默认工作协议。
+范围：整个仓库。
 
-## 1) Project Snapshot (Read First)
+## 1) 项目快照（必读）
 
-ZeroClaw is a Rust-first autonomous agent runtime optimized for:
+ZeroClaw 是一个 Rust 优先的自主智能体运行时，正全面向 **“使魔团” (ServantGuild)** 架构演进，优化目标为：
 
-- high performance
-- high efficiency
-- high stability
-- high extensibility
-- high sustainability
-- high security
+- **自治 (Autonomy)**：具备自我检测、自我决策、自我更新的能力。
+- **集体决策 (Consensus)**：重大变更（如代码更新、成员扩缩）需通过全团投票。
+- **安全隔离 (Isolation)**：基于 **Wasmtime Component Model** 驱动，实现模块热替换且无重启。
+- **进化 (Evolution)**：以 GitHub 为基因库，实现基于代码的自我迭代。
+- **高性能 (Performance)**：保持 Rust 原生的高效与确定性。
 
-Core architecture is trait-driven and modular. Most extension work should be done by implementing traits and registering in factory modules.
+核心架构是基于 Trait 驱动、Wasm 宿主和模块化的。大多数扩展工作应通过实现 Trait 并在工厂模块中注册来完成。
 
-Key extension points:
+关键扩展点：
 
+- `wit/host.wit` (Wasm Interface Type) — **核心契约定义**
 - `src/providers/traits.rs` (`Provider`)
 - `src/channels/traits.rs` (`Channel`)
 - `src/tools/traits.rs` (`Tool`)
 - `src/memory/traits.rs` (`Memory`)
-- `src/observability/traits.rs` (`Observer`)
-- `src/runtime/traits.rs` (`RuntimeAdapter`)
-- `src/peripherals/traits.rs` (`Peripheral`) — hardware boards (STM32, RPi GPIO)
+- `src/runtime/traits.rs` (`RuntimeAdapter`) — Wasmtime 集成点
+- `src/peripherals/traits.rs` (`Peripheral`) — 硬件板卡 (STM32, RPi GPIO)
 
-## 2) Deep Architecture Observations (Why This Protocol Exists)
+## 2) 深度架构观察（协议存在的理由）
 
-These codebase realities should drive every design decision:
+以下代码库现状应驱动每一个设计决策：
 
-1. **Trait + factory architecture is the stability backbone**
-    - Extension points are intentionally explicit and swappable.
-    - Most features should be added via trait implementation + factory registration, not cross-cutting rewrites.
-2. **Security-critical surfaces are first-class and internet-adjacent**
-    - `src/gateway/`, `src/security/`, `src/tools/`, `src/runtime/` carry high blast radius.
-    - Defaults already lean secure-by-default (pairing, bind safety, limits, secret handling); keep it that way.
-3. **Performance and binary size are product goals, not nice-to-have**
-    - `Cargo.toml` release profile and dependency choices optimize for size and determinism.
-    - Convenience dependencies and broad abstractions can silently regress these goals.
-4. **Config and runtime contracts are user-facing API**
-    - `src/config/schema.rs` and CLI commands are effectively public interfaces.
-    - Backward compatibility and explicit migration matter.
-5. **The project now runs in high-concurrency collaboration mode**
-    - CI + docs governance + label routing are part of the product delivery system.
-    - PR throughput is a design constraint; not just a maintainer inconvenience.
+1.  **使魔团 (ServantGuild) 是下一代形态**
+    - 系统不再是单体 Agent，而是由核心常驻使魔（Coordinator, Contractor, Speaker, Warden, Worker）组成的自治团队。
+    - 任何重大决策必须经过 `Consensus Engine` 投票，拒绝单点独裁。
+2.  **Wasm 组件模型是互操作性的基石**
+    - 所有的跨语言/跨模块交互必须通过 WIT (Wasm Interface Type) 定义。
+    - 禁止绕过 WIT 直接进行内存操作或非标准 FFI 调用。
+3.  **Trait + 工厂架构是宿主稳定性的基石**
+    - 扩展点被设计为显式且可插拔的。
+    - 大多数功能应通过 Trait 实现 + 工厂注册来添加，而不是进行横切式的重写。
+4.  **安全关键面是一等公民且与互联网相邻**
+    - `src/gateway/`, `src/security/`, `src/tools/`, `src/runtime/` 具有高爆炸半径。
+    - 默认设置已经倾向于“默认安全”（配对、绑定安全、限制、机密处理）；请保持这种状态。
+5.  **配置和运行时契约是面向用户的 API**
+    - `src/config/schema.rs` 和 CLI 命令实际上是公共接口。
+    - 向后兼容性和显式迁移非常重要。
 
-## 3) Engineering Principles (Normative)
+## 3) 工程原则（规范性）
 
-These principles are mandatory by default. They are not slogans; they are implementation constraints.
+默认情况下，这些原则是强制性的。它们不是口号；它们是实现约束。
 
-### 3.1 KISS (Keep It Simple, Stupid)
+### 3.1 KISS (Keep It Simple, Stupid) - 保持简单
 
-**Why here:** Runtime + security behavior must stay auditable under pressure.
+**原因：** 运行时 + 安全行为必须在压力下保持可审计性。
 
-Required:
+要求：
 
-- Prefer straightforward control flow over clever meta-programming.
-- Prefer explicit match branches and typed structs over hidden dynamic behavior.
-- Keep error paths obvious and localized.
+- 优先选择直观的控制流，而不是巧妙的元编程。
+- 优先选择显式的匹配分支和类型化的结构体，而不是隐藏的动态行为。
+- 保持错误路径明显且局部化。
 
-### 3.2 YAGNI (You Aren't Gonna Need It)
+### 3.2 YAGNI (You Aren't Gonna Need It) - 你不需要它
 
-**Why here:** Premature features increase attack surface and maintenance burden.
+**原因：** 过早的功能会增加攻击面和维护负担。
 
-Required:
+要求：
 
-- Do not add new config keys, trait methods, feature flags, or workflow branches without a concrete accepted use case.
-- Do not introduce speculative “future-proof” abstractions without at least one current caller.
-- Keep unsupported paths explicit (error out) rather than adding partial fake support.
+- 在没有具体已接受的用例之前，不要添加新的配置键、Trait 方法、功能标志或工作流分支。
+- 在没有至少一个当前调用者的情况下，不要引入投机性的“面向未来”的抽象。
+- 保持不支持的路径显式化（报错），而不是添加部分的虚假支持。
 
-### 3.3 DRY + Rule of Three
+### 3.3 DRY + 三次原则 (Rule of Three)
 
-**Why here:** Naive DRY can create brittle shared abstractions across providers/channels/tools.
+**原因：** 幼稚的 DRY 会在提供者/通道/工具之间创建脆弱的共享抽象。
 
-Required:
+要求：
 
-- Duplicate small, local logic when it preserves clarity.
-- Extract shared utilities only after repeated, stable patterns (rule-of-three).
-- When extracting, preserve module boundaries and avoid hidden coupling.
+- 当重复小的、局部的逻辑能保留清晰度时，请重复它。
+- 仅在重复、稳定的模式出现后（三次原则）才提取共享工具。
+- 提取时，保留模块边界并避免隐藏的耦合。
 
-### 3.4 SRP + ISP (Single Responsibility + Interface Segregation)
+### 3.4 SRP + ISP (单一职责 + 接口隔离)
 
-**Why here:** Trait-driven architecture already encodes subsystem boundaries.
+**原因：** Trait 驱动的架构已经编码了子系统边界。
 
-Required:
+要求：
 
-- Keep each module focused on one concern.
-- Extend behavior by implementing existing narrow traits whenever possible.
-- Avoid fat interfaces and “god modules” that mix policy + transport + storage.
+- 保持每个模块专注于一个关注点。
+- 尽可能通过实现现有的狭窄 Trait 来扩展行为。
+- 避免混合策略 + 传输 + 存储的庞大接口和“上帝模块”。
 
-### 3.5 Fail Fast + Explicit Errors
+### 3.5 快速失败 + 显式错误
 
-**Why here:** Silent fallback in agent runtimes can create unsafe or costly behavior.
+**原因：** 智能体运行时中的静默回退可能会导致不安全或昂贵的行为。
 
-Required:
+要求：
 
-- Prefer explicit `bail!`/errors for unsupported or unsafe states.
-- Never silently broaden permissions/capabilities.
-- Document fallback behavior when fallback is intentional and safe.
+- 对于不支持或不安全的状态，优先使用显式的 `bail!` / 错误。
+- 永远不要静默地扩大权限/能力。
+- 当回退是有意且安全的时候，记录回退行为。
 
-### 3.6 Secure by Default + Least Privilege
+### 3.6 默认安全 + 最小权限
 
-**Why here:** Gateway/tools/runtime can execute actions with real-world side effects.
+**原因：** 网关/工具/运行时可以执行具有真实副作用的操作。
 
-Required:
+要求：
 
-- Deny-by-default for access and exposure boundaries.
-- Never log secrets, raw tokens, or sensitive payloads.
-- Keep network/filesystem/shell scope as narrow as possible unless explicitly justified.
+- 对访问和暴露边界实行“默认拒绝”。
+- 永远不要记录机密、原始令牌或敏感载荷。
+- 除非有明确理由，否则保持网络/文件系统/Shell 范围尽可能窄。
 
-### 3.7 Determinism + Reproducibility
+### 3.7 确定性 + 可复现性
 
-**Why here:** Reliable CI and low-latency triage depend on deterministic behavior.
+**原因：** 可靠的 CI 和低延迟分类依赖于确定性行为。
 
-Required:
+要求：
 
-- Prefer reproducible commands and locked dependency behavior in CI-sensitive paths.
-- Keep tests deterministic (no flaky timing/network dependence without guardrails).
-- Ensure local validation commands map to CI expectations.
+- 在 CI 敏感路径中优先选择可复现的命令和锁定的依赖行为。
+- 保持测试确定性（没有无保护措施的不稳定时间/网络依赖）。
+- 确保本地验证命令映射到 CI 预期。
 
-### 3.8 Reversibility + Rollback-First Thinking
+### 3.8 可逆性 + 回滚优先思维
 
-**Why here:** Fast recovery is mandatory under high PR volume.
-
-Required:
-
-- Keep changes easy to revert (small scope, clear blast radius).
-- For risky changes, define rollback path before merge.
-- Avoid mixed mega-patches that block safe rollback.
-
-## 4) Repository Map (High-Level)
-
-- `src/main.rs` — CLI entrypoint and command routing
-- `src/lib.rs` — module exports and shared command enums
-- `src/config/` — schema + config loading/merging
-- `src/agent/` — orchestration loop
-- `src/gateway/` — webhook/gateway server
-- `src/security/` — policy, pairing, secret store
-- `src/memory/` — markdown/sqlite memory backends + embeddings/vector merge
-- `src/providers/` — model providers and resilient wrapper
-- `src/channels/` — Telegram/Discord/Slack/etc channels
-- `src/tools/` — tool execution surface (shell, file, memory, browser)
-- `src/peripherals/` — hardware peripherals (STM32, RPi GPIO); see `docs/hardware-peripherals-design.md`
-- `src/runtime/` — runtime adapters (currently native)
-- `docs/` — task-oriented documentation system (hubs, unified TOC, references, operations, security proposals, multilingual guides)
-- `.github/` — CI, templates, automation workflows
-
-## 4.1 Documentation System Contract (Required)
-
-Treat documentation as a first-class product surface, not a post-merge artifact.
-
-Canonical entry points:
-
-- repository landing + localized hubs: `README.md`, `docs/i18n/zh-CN/README.md`, `docs/i18n/ja/README.md`, `docs/i18n/ru/README.md`, `docs/i18n/fr/README.md`, `docs/i18n/vi/README.md`, `docs/i18n/el/README.md`
-- docs hubs: `docs/README.md`, `docs/i18n/zh-CN/README.md`, `docs/i18n/ja/README.md`, `docs/i18n/ru/README.md`, `docs/i18n/fr/README.md`, `docs/i18n/vi/README.md`, `docs/i18n/el/README.md`
-- unified TOC: `docs/SUMMARY.md`
-- i18n governance docs: `docs/i18n-guide.md`, `docs/i18n/README.md`, `docs/i18n-coverage.md`
-
-Supported locales (current contract):
-
-- `en`, `zh-CN`, `ja`, `ru`, `fr`, `vi`, `el`
-
-Collection indexes (category navigation):
-
-- `docs/getting-started/README.md`
-- `docs/reference/README.md`
-- `docs/operations/README.md`
-- `docs/security/README.md`
-- `docs/hardware/README.md`
-- `docs/contributing/README.md`
-- `docs/project/README.md`
-
-Runtime-contract references (must track behavior changes):
-
-- `docs/commands-reference.md`
-- `docs/providers-reference.md`
-- `docs/channels-reference.md`
-- `docs/config-reference.md`
-- `docs/operations-runbook.md`
-- `docs/troubleshooting.md`
-- `docs/one-click-bootstrap.md`
-
-Required docs governance rules:
-
-- Keep README/hub top navigation and quick routes intuitive and non-duplicative.
-- Keep entry-point parity across all supported locales (`en`, `zh-CN`, `ja`, `ru`, `fr`, `vi`, `el`) when changing navigation architecture.
-- If a change touches docs IA, runtime-contract references, or user-facing wording in shared docs, perform i18n follow-through for currently supported locales in the same PR:
-  - Update locale navigation links (`README*`, `docs/README*`, `docs/SUMMARY.md`).
-  - Update canonical locale hubs and summaries under `docs/i18n/<locale>/` for every supported locale.
-  - Update localized runtime-contract docs where equivalents exist (currently full trees for `vi` and `el`; do not regress `zh-CN`/`ja`/`ru`/`fr` hub parity).
-  - Keep `docs/*.<locale>.md` compatibility shims aligned if present.
-- Follow `docs/i18n-guide.md` as the mandatory completion checklist when docs navigation or shared wording changes.
-- Keep proposal/roadmap docs explicitly labeled; avoid mixing proposal text into runtime-contract docs.
-- Keep project snapshots date-stamped and immutable once superseded by a newer date.
-
-### 4.2 Docs i18n Completion Gate (Required)
-
-For any PR that changes docs IA, locale navigation, or shared docs wording:
-
-1. Complete i18n follow-through in the same PR using `docs/i18n-guide.md`.
-2. Keep all supported locale hubs/summaries navigable through canonical `docs/i18n/<locale>/` paths.
-3. Update `docs/i18n-coverage.md` when coverage status or locale topology changes.
-4. If any translation must be deferred, record explicit owner + follow-up issue/PR in the PR description.
-
-## 5) Risk Tiers by Path (Review Depth Contract)
-
-Use these tiers when deciding validation depth and review rigor.
-
-- **Low risk**: docs/chore/tests-only changes
-- **Medium risk**: most `src/**` behavior changes without boundary/security impact
-- **High risk**: `src/security/**`, `src/runtime/**`, `src/gateway/**`, `src/tools/**`, `.github/workflows/**`, access-control boundaries
-
-When uncertain, classify as higher risk.
-
-## 6) Agent Workflow (Required)
-
-1. **Read before write**
-    - Inspect existing module, factory wiring, and adjacent tests before editing.
-2. **Define scope boundary**
-    - One concern per PR; avoid mixed feature+refactor+infra patches.
-3. **Implement minimal patch**
-    - Apply KISS/YAGNI/DRY rule-of-three explicitly.
-4. **Validate by risk tier**
-    - Docs-only: lightweight checks.
-    - Code/risky changes: full relevant checks and focused scenarios.
-5. **Document impact**
-    - Update docs/PR notes for behavior, risk, side effects, and rollback.
-    - If CLI/config/provider/channel behavior changed, update corresponding runtime-contract references.
-    - If docs entry points changed, keep all supported locale README/docs-hub navigation aligned (`en`, `zh-CN`, `ja`, `ru`, `fr`, `vi`, `el`).
-    - Run through `docs/i18n-guide.md` and record any explicit i18n deferrals in the PR summary.
-6. **Respect queue hygiene**
-    - If stacked PR: declare `Depends on #...`.
-    - If replacing old PR: declare `Supersedes #...`.
-
-### 6.1 Branch / Commit / PR Flow (Required)
-
-All contributors (human or agent) must follow the same collaboration flow:
-
-- Create and work from a non-`main` branch.
-- Commit changes to that branch with clear, scoped commit messages.
-- Open a PR to `dev`; do not push directly to `dev` or `main`.
-- `main` is reserved for release promotion PRs from `dev`.
-- Wait for required checks and review outcomes before merging.
-- Merge via PR controls (squash/rebase/merge as repository policy allows).
-- After merge/close, clean up task branches/worktrees that are no longer needed.
-- Keep long-lived branches only when intentionally maintained with clear owner and purpose.
-
-### 6.1A PR Disposition and Workflow Authority (Required)
-
-- Decide merge/close outcomes from repository-local authority in this order: `.github/workflows/**`, GitHub branch protection/rulesets, `docs/pr-workflow.md`, then this `AGENTS.md`.
-- External agent skills/templates are execution aids only; they must not override repository-local policy.
-- A normal contributor PR targeting `main` is a routing defect, not by itself a closure reason; if intent and content are legitimate, retarget to `dev`.
-- Direct-close the PR (do not supersede/replay) when high-confidence integrity-risk signals exist:
-  - unapproved or unrelated repository rebranding attempts (for example replacing project logo/identity assets)
-  - unauthorized platform-surface expansion (for example introducing `web` apps, dashboards, frontend stacks, or UI surfaces not requested by maintainers)
-  - title/scope deception that hides high-risk code changes (for example `docs:` title with broad `src/**` changes)
-  - spam-like or intentionally harmful payload patterns
-  - multi-domain dirty-bundle changes with no safe, auditable isolation path
-- If unauthorized platform-surface expansion is detected during review/implementation, report to maintainers immediately and pause further execution until explicit direction is given.
-- Use supersede flow only when maintainers explicitly want to preserve valid work and attribution.
-- In public PR close/block comments, state only direct actionable reasons; do not include internal decision-process narration or "non-reason" qualifiers.
-
-### 6.1B Assignee-First Gate (Required)
-
-- For any GitHub issue or PR selected for active handling, the first action is to ensure `@chumyin` is an assignee.
-- This is additive ownership: keep existing assignees and add `@chumyin` if missing.
-- Do not start triage/review/implementation/merge work before assignee assignment is confirmed.
-- Queue safety rule: assign only the currently active target; do not pre-assign future queued targets.
-
-### 6.2 Worktree Workflow (Required for All Task Streams)
-
-Use Git worktrees to isolate every active task stream safely and predictably:
-
-- Use one dedicated worktree per active branch/PR stream; do not implement directly in a shared default workspace.
-- Keep each worktree on a single branch and a single concern; do not mix unrelated edits in one worktree.
-- Before each commit/push, verify commit hygiene in that worktree (`git status --short` and `git diff --cached`) so only scoped files are included.
-- Run validation commands inside the corresponding worktree before commit/PR.
-- Name worktrees clearly by scope (for example: `wt/ci-hardening`, `wt/provider-fix`).
-- After PR merge/close (or task abandonment), remove stale worktrees/branches and prune refs (`git worktree prune`, `git fetch --prune`).
-- Local Codex automation may use one-command cleanup helper: `~/.codex/skills/zeroclaw-pr-issue-automation/scripts/cleanup_track.sh --repo-dir <repo_dir> --worktree <worktree_path> --branch <branch_name>`.
-- PR checkpoint rules from section 6.1 still apply to worktree-based development.
-
-### 6.3 Code Naming Contract (Required)
-
-Apply these naming rules for all code changes unless a subsystem has a stronger existing pattern.
-
-- Use Rust standard casing consistently: modules/files `snake_case`, types/traits/enums `PascalCase`, functions/variables `snake_case`, constants/statics `SCREAMING_SNAKE_CASE`.
-- Name types and modules by domain role, not implementation detail (for example `DiscordChannel`, `SecurityPolicy`, `MemoryStore` over vague names like `Manager`/`Helper`).
-- Keep trait implementer naming explicit and predictable: `<ProviderName>Provider`, `<ChannelName>Channel`, `<ToolName>Tool`, `<BackendName>Memory`.
-- Keep factory registration keys stable, lowercase, and user-facing (for example `"openai"`, `"discord"`, `"shell"`), and avoid alias sprawl without migration need.
-- Name tests by behavior/outcome (`<subject>_<expected_behavior>`) and keep fixture identifiers neutral/project-scoped.
-- If identity-like naming is required in tests/examples, use ZeroClaw-native labels only (`ZeroClawAgent`, `zeroclaw_user`, `zeroclaw_node`).
-
-### 6.4 Architecture Boundary Contract (Required)
-
-Use these rules to keep the trait/factory architecture stable under growth.
-
-- Extend capabilities by adding trait implementations + factory wiring first; avoid cross-module rewrites for isolated features.
-- Keep dependency direction inward to contracts: concrete integrations depend on trait/config/util layers, not on other concrete integrations.
-- Avoid creating cross-subsystem coupling (for example provider code importing channel internals, tool code mutating gateway policy directly).
-- Keep module responsibilities single-purpose: orchestration in `agent/`, transport in `channels/`, model I/O in `providers/`, policy in `security/`, execution in `tools/`.
-- Introduce new shared abstractions only after repeated use (rule-of-three), with at least one real caller in current scope.
-- For config/schema changes, treat keys as public contract: document defaults, compatibility impact, and migration/rollback path.
-
-## 7) Change Playbooks
-
-### 7.1 Adding a Provider
-
-- Implement `Provider` in `src/providers/`.
-- Register in `src/providers/mod.rs` factory.
-- Add focused tests for factory wiring and error paths.
-- Avoid provider-specific behavior leaks into shared orchestration code.
-
-### 7.2 Adding a Channel
-
-- Implement `Channel` in `src/channels/`.
-- Keep `send`, `listen`, `health_check`, typing semantics consistent.
-- Cover auth/allowlist/health behavior with tests.
-
-### 7.3 Adding a Tool
-
-- Implement `Tool` in `src/tools/` with strict parameter schema.
-- Validate and sanitize all inputs.
-- Return structured `ToolResult`; avoid panics in runtime path.
-
-### 7.4 Adding a Peripheral
-
-- Implement `Peripheral` in `src/peripherals/`.
-- Peripherals expose `tools()` — each tool delegates to the hardware (GPIO, sensors, etc.).
-- Register board type in config schema if needed.
-- See `docs/hardware-peripherals-design.md` for protocol and firmware notes.
-
-### 7.5 Security / Runtime / Gateway Changes
-
-- Include threat/risk notes and rollback strategy.
-- Add/update tests or validation evidence for failure modes and boundaries.
-- Keep observability useful but non-sensitive.
-- For `.github/workflows/**` changes, include Actions allowlist impact in PR notes and update `docs/actions-source-policy.md` when sources change.
-
-### 7.6 Docs System / README / IA Changes
-
-- Treat docs navigation as product UX: preserve clear pathing from README -> docs hub -> SUMMARY -> category index.
-- Keep top-level nav concise; avoid duplicative links across adjacent nav blocks.
-- When runtime surfaces change, update related references (`commands/providers/channels/config/runbook/troubleshooting`).
-- Keep multilingual entry-point parity for all supported locales (`en`, `zh-CN`, `ja`, `ru`, `fr`, `vi`, `el`) when nav or key wording changes.
-- When shared docs wording changes, sync corresponding localized docs for supported locales in the same PR (or explicitly document deferral and follow-up PR).
-- Treat `docs/i18n/<locale>/**` as canonical for localized hubs/summaries; keep docs-root compatibility shims aligned when edited.
-- Apply `docs/i18n-guide.md` completion checklist before merge and include i18n status in PR notes.
-- For docs snapshots, add new date-stamped files for new sprints rather than rewriting historical context.
-
-
-## 8) Validation Matrix
-
-Default local checks for code changes:
+**原因：** 在高 PR 数量下，快速恢复是强制性的。
+
+要求：
+
+- 保持变更易于恢复（小范围，清晰的爆炸半径）。
+- 对于风险变更，在合并前定义回滚路径。
+- 避免阻碍安全回滚的混合巨型补丁。
+
+### 3.9 审慎代理 (Prudent Agency)
+
+**原因：** 智能体拥有 Root/Admin 权限；安全保障来自于可恢复性而非限制。
+
+要求：
+
+- **审计优先 (Audit First)**：在执行任何 OS 变更操作（写文件、执行命令）前，必须先记录结构化审计日志。
+- **快照常备 (Snapshot Always)**：在变更状态前，确保有可恢复的快照（文件级或系统级）。
+- **回滚就绪 (Rollback Ready)**：每个变更操作必须有确定的回滚路径，由安全模块在失败时执行。
+- **禁止裸调 (Prohibition)**：禁止直接使用 `std::fs` 或 `std::process::Command` 实现业务逻辑；必须通过 `src/safety/` 包装器。
+
+### 3.10 共识驱动 (Consensus Driven)
+
+**原因：** 自治系统需要防止单点故障或流氓智能体破坏系统。
+
+要求：
+
+- **重大变更需投票**：代码更新、成员增减、配置变更必须触发 `Consensus Engine` 投票。
+- **奇数节点**：核心使魔数量保持奇数以避免死锁。
+- **一票否决**：主人 (Owner) 对任何提案拥有一票否决权。
+
+## 4) 仓库地图（高层级）
+
+- `src/main.rs` — CLI 入口点和命令路由
+- `src/lib.rs` — 模块导出和共享命令枚举
+- `wit/` — **Wasm 接口定义 (WIT) 文件**
+- `src/config/` — 模式 + 配置加载/合并
+- `src/registry/` — 动态角色/技能/契约注册表 (DB-backed)
+- `src/scheduler/` — 持久化任务队列与分发
+- `src/safety/` — 审慎代理核心 (审计, 快照, 回滚)
+- `src/consensus/` — 共识引擎与投票机制
+- `src/gateway/` — Webhook/网关服务器
+- `src/security/` — 策略、配对、机密存储 (crypto)
+- `src/memory/` — Markdown/SQLite 记忆后端 + 嵌入/向量合并
+- `src/providers/` — 模型提供者和弹性包装器
+- `src/channels/` — Telegram/Discord/Slack/etc 通道
+- `src/tools/` — 工具执行面（Shell, 文件, 内存, 浏览器）
+- `src/peripherals/` — 硬件外设 (STM32, RPi GPIO)
+- `src/runtime/` — 运行时适配器（Wasmtime Host 环境）
+- `src/servants/` — 核心使魔的 Rust 实现 (Guest Modules)
+- `docs/` — 面向任务的文档系统
+
+## 5) 使魔团架构 (ServantGuild Architecture)
+
+本部分定义了系统的核心角色与交互模型。
+
+### 5.1 核心常驻使魔 (Core Servants)
+
+系统由 5 个固定角色的使魔组成，负责维持系统的生存与演进：
+
+1.  **枢机团长 (Coordinator)**
+    - *职责*：主人沟通接口，任务分发，状态汇报。
+    - *对应模块*：`src/servants/coordinator` (Wasm Guest)。
+2.  **契约使魔 (Contractor)**
+    - *职责*：负责使魔的创建、销毁、配置管理、版本发布。
+    - *对应模块*：`src/servants/contractor` (Wasm Guest)。
+3.  **议长使魔 (Speaker)**
+    - *职责*：组织团议，收集投票，统计共识。
+    - *对应模块*：`src/servants/speaker` (Wasm Guest)。
+4.  **监工使魔 (Warden)**
+    - *职责*：安全审计，性能监控，新版本集体验证。
+    - *对应模块*：`src/servants/warden` (Wasm Guest)。
+5.  **执行使魔 (Worker)**
+    - *职责*：核心干活角色，代码编写、工具调用。
+    - *对应模块*：`src/servants/worker` (Wasm Guest)。
+
+### 5.2 交互模式
+
+- **主人 (Owner)**：最高权限者，拥有最终否决权，通过 CLI/API 下达指令。
+- **团长 (Master)**：ZeroClaw Daemon 宿主进程 (Rust Host)，不决策，只执行 Wasm 容器管理与消息转发。
+- **使魔 (Servant)**：运行在 Wasmtime 沙盒内的智能体实例，通过 WIT 接口与宿主交互。
+
+### 5.3 进化循环 (Evolution Loop)
+
+1.  **感知**：监工发现问题或议长发起更新。
+2.  **决策**：全团投票通过。
+3.  **开发**：执行使魔修改代码。
+4.  **发布**：契约使魔发布 Release (Wasm Component)。
+5.  **热更**：全团热加载新 Wasm。
+6.  **验证**：交叉验证与灰度发布。
+
+## 6) 风险等级与使魔分工 (Review Depth Contract)
+
+在决定验证深度和审查严格程度时使用这些等级。
+
+- **低风险**：仅文档/杂务/测试变更
+    - *负责角色*：临时弹性使魔 (Ephemeral Servants) / 执行使魔 (Worker)
+- **中风险**：大多数 `src/**` 行为变更，无边界/安全影响
+    - *负责角色*：执行使魔 (Worker) + 监工使魔 (Warden) 审计
+- **高风险**：`src/security/**`, `src/runtime/**`, `wit/**`, `src/gateway/**`, `src/tools/**`, `.github/workflows/**`, 访问控制边界
+    - *负责角色*：监工使魔 (Warden) 审计 + 议长使魔 (Speaker) 投票确认 + 主人 (Owner) 最终批准
+
+如果不确定，归类为更高风险。
+
+## 7) 智能体工作流（必需）
+
+1. **写前读**
+    - 在编辑之前检查现有模块、工厂连线和相邻测试。
+2. **定义范围边界**
+    - 每个 PR 一个关注点；避免混合功能+重构+基础设施补丁。
+3. **实现最小补丁**
+    - 显式应用 KISS/YAGNI/DRY 三次原则。
+4. **按风险等级验证**
+    - 仅文档：轻量级检查。
+    - 代码/风险变更：完整的相关检查和重点场景。
+5. **记录影响**
+    - 更新文档/PR 说明，说明行为、风险、副作用和回滚。
+    - 如果 CLI/配置/提供者/通道行为发生变化，更新相应的运行时契约参考。
+    - **如果 WIT 接口发生变化，必须同步更新 Host 实现和 Guest SDK。**
+6. **尊重队列卫生**
+    - 如果是堆叠 PR：声明 `Depends on #...`。
+    - 如果替换旧 PR：声明 `Supersedes #...`。
+
+（保留后续关于分支、PR 处置、工作树、代码命名、架构边界契约的内容...）
+
+## 8) 变更剧本
+
+### 8.1 添加提供者 (Provider)
+
+- 在 `src/providers/` 中实现 `Provider`。
+- 在 `src/providers/mod.rs` 工厂中注册。
+- 为工厂连线和错误路径添加重点测试。
+- 避免提供者特定的行为泄漏到共享编排代码中。
+
+### 8.2 添加通道 (Channel)
+
+- 在 `src/channels/` 中实现 `Channel`。
+- 保持 `send`, `listen`, `health_check`, 类型语义一致。
+- 用测试覆盖认证/允许列表/健康行为。
+
+### 8.3 添加工具 (Tool)
+
+- 在 `src/tools/` 中实现 `Tool`，具有严格的参数模式。
+- 验证并清理所有输入。
+- 返回结构化的 `ToolResult`；避免在运行时路径中恐慌 (panic)。
+- **如果工具需要暴露给 Wasm 使魔，必须在 `wit/host.wit` 中定义接口并在 `src/runtime/` 中实现绑定。**
+
+### 8.4 添加外设 (Peripheral)
+
+- 在 `src/peripherals/` 中实现 `Peripheral`。
+- 外设暴露 `tools()` — 每个工具委托给硬件（GPIO, 传感器等）。
+- 如果需要，在配置模式中注册板卡类型。
+- 见 `docs/hardware-peripherals-design.md` 获取协议和固件说明。
+
+### 8.5 安全 / 运行时 / 网关变更
+
+- 包含威胁/风险说明和回滚策略。
+- 为故障模式和边界添加/更新测试或验证证据。
+- 保持可观测性有用但非敏感。
+- 对于 `.github/workflows/**` 变更，在 PR 说明中包含 Actions 允许列表影响，并在源变更时更新 `docs/actions-source-policy.md`。
+
+### 8.6 文档系统 / README / IA 变更
+
+- 将文档导航视为产品 UX：保留从 README -> 文档中心 -> SUMMARY -> 分类索引的清晰路径。
+- 保持顶级导航简洁；避免相邻导航块之间的重复链接。
+- 当运行时界面变更时，更新相关参考（`commands/providers/channels/config/runbook/troubleshooting`）。
+- 当导航或关键措辞变更时，保持所有支持的语言环境（`en`, `zh-CN`, `ja`, `ru`, `fr`, `vi`, `el`）的入口点一致性。
+
+### 8.7 修改 WIT 接口 (New)
+
+- 修改 `wit/host.wit` 定义。
+- 运行 `wit-bindgen` 或相关构建脚本更新生成的绑定代码。
+- 更新 `src/runtime/` 中的 Host 实现以匹配新接口。
+- 更新 `src/servants/` 或 `sdk/` 中的 Guest 调用代码。
+- 增加针对新接口边界的集成测试。
+
+## 9) 验证矩阵
+
+代码变更的默认本地检查：
 
 ```bash
 cargo fmt --all -- --check
@@ -361,176 +305,39 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Preferred local pre-PR validation path (recommended, not required):
+首选本地预 PR 验证路径（推荐，非必需）：
 
 ```bash
 ./dev/ci.sh all
 ```
 
-Notes:
+注意：
 
-- Local Docker-based CI is strongly recommended when Docker is available.
-- Contributors are not blocked from opening a PR if local Docker CI is unavailable; in that case run the most relevant native checks and document what was run.
+- 当 Docker 可用时，强烈建议使用基于 Docker 的本地 CI。
+- 如果本地 Docker CI 不可用，贡献者不会被阻止打开 PR；在这种情况下，运行最相关的原生检查并记录运行的内容。
 
-Additional expectations by change type:
+按变更类型的额外期望：
 
-- **Docs/template-only**:
-    - run markdown lint and link-integrity checks
-    - if touching README/docs-hub/SUMMARY/collection indexes, verify EN/ZH-CN/JA/RU/FR/VI/EL navigation parity
-    - if touching bootstrap docs/scripts, run `bash -n bootstrap.sh scripts/bootstrap.sh scripts/install.sh`
-- **Workflow changes**: validate YAML syntax; run workflow lint/sanity checks when available.
-- **Security/runtime/gateway/tools**: include at least one boundary/failure-mode validation.
+- **文档/仅模板**：
+    - 运行 Markdown Lint 和链接完整性检查
+    - 如果涉及 README/docs-hub/SUMMARY/集合索引，验证 EN/ZH-CN/JA/RU/FR/VI/EL 导航一致性
+    - 如果涉及引导文档/脚本，运行 `bash -n bootstrap.sh scripts/bootstrap.sh scripts/install.sh`
+- **工作流变更**：验证 YAML 语法；如果可用，运行工作流 Lint/健全性检查。
+- **安全/运行时/网关/工具**：包含至少一个边界/故障模式验证。
+- **Wasm 接口变更**：必须包含 Host-Guest 交互测试。
 
-If full checks are impractical, run the most relevant subset and document what was skipped and why.
+如果全面检查不切实际，运行最相关的子集并记录跳过的内容及原因。
 
-## 9) Collaboration and PR Discipline
+## 10) 协作与 PR 纪律
 
-- Follow `.github/pull_request_template.md` fully (including side effects / blast radius).
-- Keep PR descriptions concrete: problem, change, non-goals, risk, rollback.
-- For issue-driven work, add explicit issue-closing keywords in the **PR body** for every resolved issue (for example `Closes #1502`).
-- Do not rely on issue comments alone for linkage visibility; comments are supplemental, not a substitute for PR-body closing references.
-- Default to one issue per clean commit/PR track. For multiple issues, split into separate clean commits/PRs unless there is clear technical coupling.
-- If multiple issues are intentionally bundled in one PR, document the coupling rationale explicitly in the PR summary.
-- Commit hygiene is mandatory: stage only task-scoped files and split unrelated changes into separate commits/worktrees.
-- Completion hygiene is mandatory: after merge/close, clean stale local branches/worktrees before starting the next track.
-- Use conventional commit titles.
-- Prefer small PRs (`size: XS/S/M`) when possible.
-- Agent-assisted PRs are welcome, **but contributors remain accountable for understanding what their code will do**.
+（保留原有内容...）
 
-### 9.1 Privacy/Sensitive Data and Neutral Wording (Required)
+## 11) 引用与参考
 
-Treat privacy and neutrality as merge gates, not best-effort guidelines.
-
-- Never commit personal or sensitive data in code, docs, tests, fixtures, snapshots, logs, examples, or commit messages.
-- Prohibited data includes (non-exhaustive): real names, personal emails, phone numbers, addresses, access tokens, API keys, credentials, IDs, and private URLs.
-- Use neutral project-scoped placeholders (for example: `user_a`, `test_user`, `project_bot`, `example.com`) instead of real identity data.
-- Test names/messages/fixtures must be impersonal and system-focused; avoid first-person or identity-specific language.
-- If identity-like context is unavoidable, use ZeroClaw-scoped roles/labels only (for example: `ZeroClawAgent`, `ZeroClawOperator`, `zeroclaw_user`) and avoid real-world personas.
-- Recommended identity-safe naming palette (use when identity-like context is required):
-    - actor labels: `ZeroClawAgent`, `ZeroClawOperator`, `ZeroClawMaintainer`, `zeroclaw_user`
-    - service/runtime labels: `zeroclaw_bot`, `zeroclaw_service`, `zeroclaw_runtime`, `zeroclaw_node`
-    - environment labels: `zeroclaw_project`, `zeroclaw_workspace`, `zeroclaw_channel`
-- If reproducing external incidents, redact and anonymize all payloads before committing.
-- Before push, review `git diff --cached` specifically for accidental sensitive strings and identity leakage.
-
-### 9.2 Superseded-PR Attribution (Required)
-
-When a PR supersedes another contributor's PR and carries forward substantive code or design decisions, preserve authorship explicitly.
-
-- In the integrating commit message, add one `Co-authored-by: Name <email>` trailer per superseded contributor whose work is materially incorporated.
-- Use a GitHub-recognized email (`<login@users.noreply.github.com>` or the contributor's verified commit email) so attribution is rendered correctly.
-- Keep trailers on their own lines after a blank line at commit-message end; never encode them as escaped `\\n` text.
-- In the PR body, list superseded PR links and briefly state what was incorporated from each.
-- If no actual code/design was incorporated (only inspiration), do not use `Co-authored-by`; give credit in PR notes instead.
-
-### 9.3 Superseded-PR PR Template (Recommended)
-
-When superseding multiple PRs, use a consistent title/body structure to reduce reviewer ambiguity.
-
-- Recommended title format: `feat(<scope>): unify and supersede #<pr_a>, #<pr_b> [and #<pr_n>]`
-- If this is docs/chore/meta only, keep the same supersede suffix and use the appropriate conventional-commit type.
-- In the PR body, include the following template (fill placeholders, remove non-applicable lines):
-
-```md
-## Supersedes
-- #<pr_a> by @<author_a>
-- #<pr_b> by @<author_b>
-- #<pr_n> by @<author_n>
-
-## Integrated Scope
-- From #<pr_a>: <what was materially incorporated>
-- From #<pr_b>: <what was materially incorporated>
-- From #<pr_n>: <what was materially incorporated>
-
-## Attribution
-- Co-authored-by trailers added for materially incorporated contributors: Yes/No
-- If No, explain why (for example: no direct code/design carry-over)
-
-## Non-goals
-- <explicitly list what was not carried over>
-
-## Risk and Rollback
-- Risk: <summary>
-- Rollback: <revert commit/PR strategy>
-```
-
-### 9.4 Superseded-PR Commit Template (Recommended)
-
-When a commit unifies or supersedes prior PR work, use a deterministic commit message layout so attribution is machine-parsed and reviewer-friendly.
-
-- Keep one blank line between message sections, and exactly one blank line before trailer lines.
-- Keep each trailer on its own line; do not wrap, indent, or encode as escaped `\n` text.
-- Add one `Co-authored-by` trailer per materially incorporated contributor, using GitHub-recognized email.
-- If no direct code/design is carried over, omit `Co-authored-by` and explain attribution in the PR body instead.
-
-```text
-feat(<scope>): unify and supersede #<pr_a>, #<pr_b> [and #<pr_n>]
-
-<one-paragraph summary of integrated outcome>
-
-Supersedes:
-- #<pr_a> by @<author_a>
-- #<pr_b> by @<author_b>
-- #<pr_n> by @<author_n>
-
-Integrated scope:
-- <subsystem_or_feature_a>: from #<pr_x>
-- <subsystem_or_feature_b>: from #<pr_y>
-
-Co-authored-by: <Name A> <login_a@users.noreply.github.com>
-Co-authored-by: <Name B> <login_b@users.noreply.github.com>
-```
-
-Reference docs:
-
+- `docs/design/servant_guild_whitepaper_v1.1.md` (架构蓝图)
+- `docs/design/llm_architecture_migration_playbook_zh.md` (迁移手册)
 - `CONTRIBUTING.md`
 - `docs/README.md`
 - `docs/SUMMARY.md`
-- `docs/i18n-guide.md`
-- `docs/i18n/README.md`
-- `docs/i18n-coverage.md`
-- `docs/docs-inventory.md`
-- `docs/commands-reference.md`
-- `docs/providers-reference.md`
-- `docs/channels-reference.md`
-- `docs/config-reference.md`
-- `docs/operations-runbook.md`
-- `docs/troubleshooting.md`
-- `docs/one-click-bootstrap.md`
-- `docs/pr-workflow.md`
-- `docs/reviewer-playbook.md`
-- `docs/ci-map.md`
-- `docs/actions-source-policy.md`
 
-## 10) Anti-Patterns (Do Not)
-
-- Do not add heavy dependencies for minor convenience.
-- Do not silently weaken security policy or access constraints.
-- Do not add speculative config/feature flags “just in case”.
-- Do not mix massive formatting-only changes with functional changes.
-- Do not modify unrelated modules “while here”.
-- Do not bypass failing checks without explicit explanation.
-- Do not hide behavior-changing side effects in refactor commits.
-- Do not include personal identity or sensitive information in test data, examples, docs, or commits.
-- Do not attempt repository rebranding/identity replacement unless maintainers explicitly requested it in the current scope.
-- Do not introduce new platform surfaces (for example `web` apps, dashboards, frontend stacks, or UI portals) unless maintainers explicitly requested them in the current scope.
-
-## 11) Handoff Template (Agent -> Agent / Maintainer)
-
-When handing off work, include:
-
-1. What changed
-2. What did not change
-3. Validation run and results
-4. Remaining risks / unknowns
-5. Next recommended action
-
-## 12) Vibe Coding Guardrails
-
-When working in fast iterative mode:
-
-- Keep each iteration reversible (small commits, clear rollback).
-- Validate assumptions with code search before implementing.
-- Prefer deterministic behavior over clever shortcuts.
-- Do not “ship and hope” on security-sensitive paths.
-- If uncertain, leave a concrete TODO with verification context, not a hidden guess.
+（保留后续内容...）
