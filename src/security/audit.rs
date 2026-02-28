@@ -1,423 +1,383 @@
-//! Audit logging for security events
+//! Audit Logging Module
+//!
+//! Provides comprehensive audit logging for compliance and security
 
-use crate::config::AuditConfig;
-use anyhow::Result;
-use chrono::{DateTime, Utc};
-use parking_lot::Mutex;
+use crate::security::*;
+use chrono::{DateTime, Utc, Duration};
 use serde::{Deserialize, Serialize};
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::PathBuf;
-use uuid::Uuid;
+use std::collections::VecDeque;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
-/// Audit event types
+/// Audit log entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AuditEventType {
-    CommandExecution,
-    FileAccess,
-    ConfigChange,
-    AuthSuccess,
-    AuthFailure,
-    PolicyViolation,
-    SecurityEvent,
-}
-
-/// Actor information (who performed the action)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Actor {
-    pub channel: String,
-    pub user_id: Option<String>,
-    pub username: Option<String>,
-}
-
-/// Action information (what was done)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Action {
-    pub command: Option<String>,
-    pub risk_level: Option<String>,
-    pub approved: bool,
-    pub allowed: bool,
-}
-
-/// Execution result
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutionResult {
-    pub success: bool,
-    pub exit_code: Option<i32>,
-    pub duration_ms: Option<u64>,
-    pub error: Option<String>,
-}
-
-/// Security context
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SecurityContext {
-    pub policy_violation: bool,
-    pub rate_limit_remaining: Option<u32>,
-    pub sandbox_backend: Option<String>,
-}
-
-/// Complete audit event
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuditEvent {
+pub struct AuditEntry {
+    /// Unique entry ID
+    pub id: uuid::Uuid,
+    /// Operation type
+    pub operation: AuditOperation,
+    /// Agent that performed the operation
+    pub agent: String,
+    /// Target of the operation (if applicable)
+    pub target: Option<String>,
+    /// Security level of the operation
+    pub security_level: SecurityLevel,
+    /// Operation result
+    pub result: OperationResult,
+    /// Timestamp
     pub timestamp: DateTime<Utc>,
-    pub event_id: String,
-    pub event_type: AuditEventType,
-    pub actor: Option<Actor>,
-    pub action: Option<Action>,
-    pub result: Option<ExecutionResult>,
-    pub security: SecurityContext,
+    /// Source IP address
+    pub source_ip: Option<String>,
+    /// Session ID
+    pub session_id: Option<uuid::Uuid>,
+    /// Additional details
+    pub details: std::collections::HashMap<String, String>,
+    /// Duration in milliseconds
+    pub duration_ms: Option<u64>,
 }
 
-impl AuditEvent {
-    /// Create a new audit event
-    pub fn new(event_type: AuditEventType) -> Self {
+/// Types of auditable operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuditOperation {
+    // Authentication
+    Login,
+    Logout,
+    TokenRefresh,
+    
+    // Agent operations
+    AgentSpawn,
+    AgentTerminate,
+    AgentEvolve,
+    
+    // Task operations
+    TaskCreate,
+    TaskExecute,
+    TaskComplete,
+    TaskFail,
+    
+    // Consensus operations
+    ConsensusPropose,
+    ConsensusVote,
+    ConsensusFinalize,
+    
+    // Evolution operations
+    EvolutionPropose,
+    EvolutionApprove,
+    EvolutionReject,
+    EvolutionExecute,
+    
+    // Security operations
+    SecretAccess,
+    SecretRotate,
+    EncryptionKeyRotate,
+    PolicyChange,
+    
+    // Administrative
+    ConfigurationChange,
+    SystemRestart,
+    BackupCreate,
+    RestoreFromBackup,
+    
+    // Data operations
+    DataRead,
+    DataWrite,
+    DataDelete,
+    DataExport,
+}
+
+/// Result of an operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OperationResult {
+    Success,
+    Failure { reason: String },
+    Unauthorized,
+    Forbidden,
+    Timeout,
+    Cancelled,
+}
+
+/// Audit log
+pub struct AuditLog {
+    retention_days: u32,
+    entries: Arc<RwLock<VecDeque<AuditEntry>>>,
+    max_entries: usize,
+}
+
+impl AuditLog {
+    /// Create new audit log
+    pub fn new(retention_days: u32) -> Self {
         Self {
-            timestamp: Utc::now(),
-            event_id: Uuid::new_v4().to_string(),
-            event_type,
-            actor: None,
-            action: None,
-            result: None,
-            security: SecurityContext {
-                policy_violation: false,
-                rate_limit_remaining: None,
-                sandbox_backend: None,
-            },
+            retention_days,
+            entries: Arc::new(RwLock::new(VecDeque::with_capacity(10000))),
+            max_entries: 100000,
         }
     }
-
-    /// Set the actor
-    pub fn with_actor(
-        mut self,
-        channel: String,
-        user_id: Option<String>,
-        username: Option<String>,
-    ) -> Self {
-        self.actor = Some(Actor {
-            channel,
-            user_id,
-            username,
-        });
-        self
-    }
-
-    /// Set the action
-    pub fn with_action(
-        mut self,
-        command: String,
-        risk_level: String,
-        approved: bool,
-        allowed: bool,
-    ) -> Self {
-        self.action = Some(Action {
-            command: Some(command),
-            risk_level: Some(risk_level),
-            approved,
-            allowed,
-        });
-        self
-    }
-
-    /// Set the result
-    pub fn with_result(
-        mut self,
-        success: bool,
-        exit_code: Option<i32>,
-        duration_ms: u64,
-        error: Option<String>,
-    ) -> Self {
-        self.result = Some(ExecutionResult {
-            success,
-            exit_code,
-            duration_ms: Some(duration_ms),
-            error,
-        });
-        self
-    }
-
-    /// Set security context
-    pub fn with_security(mut self, sandbox_backend: Option<String>) -> Self {
-        self.security.sandbox_backend = sandbox_backend;
-        self
-    }
-}
-
-/// Audit logger
-pub struct AuditLogger {
-    log_path: PathBuf,
-    config: AuditConfig,
-    buffer: Mutex<Vec<AuditEvent>>,
-}
-
-/// Structured command execution details for audit logging.
-#[derive(Debug, Clone)]
-pub struct CommandExecutionLog<'a> {
-    pub channel: &'a str,
-    pub command: &'a str,
-    pub risk_level: &'a str,
-    pub approved: bool,
-    pub allowed: bool,
-    pub success: bool,
-    pub duration_ms: u64,
-}
-
-impl AuditLogger {
-    /// Create a new audit logger
-    pub fn new(config: AuditConfig, zeroclaw_dir: PathBuf) -> Result<Self> {
-        let log_path = zeroclaw_dir.join(&config.log_path);
-        Ok(Self {
-            log_path,
-            config,
-            buffer: Mutex::new(Vec::new()),
-        })
-    }
-
-    /// Log an event
-    pub fn log(&self, event: &AuditEvent) -> Result<()> {
-        if !self.config.enabled {
-            return Ok(());
+    
+    /// Log an audit entry
+    pub async fn log(&self, entry: AuditEntry) {
+        let mut entries = self.entries.write().await;
+        
+        // Add entry
+        entries.push_back(entry);
+        
+        // Prune old entries
+        if entries.len() > self.max_entries {
+            let cutoff = Utc::now() - Duration::days(self.retention_days as i64);
+            entries.retain(|e| e.timestamp > cutoff);
         }
-
-        // Check log size and rotate if needed
-        self.rotate_if_needed()?;
-
-        // Serialize and write
-        let line = serde_json::to_string(event)?;
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.log_path)?;
-
-        writeln!(file, "{}", line)?;
-        file.sync_all()?;
-
-        Ok(())
     }
-
-    /// Log a command execution event.
-    pub fn log_command_event(&self, entry: CommandExecutionLog<'_>) -> Result<()> {
-        let event = AuditEvent::new(AuditEventType::CommandExecution)
-            .with_actor(entry.channel.to_string(), None, None)
-            .with_action(
-                entry.command.to_string(),
-                entry.risk_level.to_string(),
-                entry.approved,
-                entry.allowed,
-            )
-            .with_result(entry.success, None, entry.duration_ms, None);
-
-        self.log(&event)
+    
+    /// Get entries matching filter
+    pub async fn query(&self, filter: &AuditFilter) -> Vec<AuditEntry> {
+        let entries = self.entries.read().await;
+        
+        entries
+            .iter()
+            .filter(|e| filter.matches(e))
+            .cloned()
+            .collect()
     }
-
-    /// Backward-compatible helper to log a command execution event.
-    #[allow(clippy::too_many_arguments)]
-    pub fn log_command(
-        &self,
-        channel: &str,
-        command: &str,
-        risk_level: &str,
-        approved: bool,
-        allowed: bool,
-        success: bool,
-        duration_ms: u64,
-    ) -> Result<()> {
-        self.log_command_event(CommandExecutionLog {
-            channel,
-            command,
-            risk_level,
-            approved,
-            allowed,
-            success,
-            duration_ms,
-        })
+    
+    /// Get entries for an agent
+    pub async fn get_agent_entries(&self, agent: &str, limit: usize) -> Vec<AuditEntry> {
+        let entries = self.entries.read().await;
+        
+        entries
+            .iter()
+            .filter(|e| e.agent == agent)
+            .take(limit)
+            .cloned()
+            .collect()
     }
-
-    /// Rotate log if it exceeds max size
-    fn rotate_if_needed(&self) -> Result<()> {
-        if let Ok(metadata) = std::fs::metadata(&self.log_path) {
-            let current_size_mb = metadata.len() / (1024 * 1024);
-            if current_size_mb >= u64::from(self.config.max_size_mb) {
-                self.rotate()?;
+    
+    /// Get recent entries
+    pub async fn recent(&self, limit: usize) -> Vec<AuditEntry> {
+        let entries = self.entries.read().await;
+        
+        entries.iter().rev().take(limit).cloned().collect()
+    }
+    
+    /// Get failed operations
+    pub async fn failed_operations(&self, limit: usize) -> Vec<AuditEntry> {
+        let entries = self.entries.read().await;
+        
+        entries
+            .iter()
+            .rev()
+            .filter(|e| !matches!(e.result, OperationResult::Success))
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+    
+    /// Export entries for compliance
+    pub async fn export(&self, format: ExportFormat) -> Vec<u8> {
+        let entries = self.entries.read().await;
+        
+        match format {
+            ExportFormat::Json => {
+                serde_json::to_vec_pretty(&*entries).unwrap_or_default()
+            }
+            ExportFormat::Csv => {
+                let mut csv = String::from("id,operation,agent,timestamp,result,details\n");
+                for entry in entries.iter() {
+                    csv.push_str(&format!(
+                        "{},{},{},{},{:?},{}\n",
+                        entry.id,
+                        serde_json::to_string(&entry.operation).unwrap_or_default(),
+                        entry.agent,
+                        entry.timestamp.to_rfc3339(),
+                        entry.result,
+                        serde_json::to_string(&entry.details).unwrap_or_default(),
+                    ));
+                }
+                csv.into_bytes()
             }
         }
-        Ok(())
     }
-
-    /// Rotate the log file
-    fn rotate(&self) -> Result<()> {
-        for i in (1..10).rev() {
-            let old_name = format!("{}.{}.log", self.log_path.display(), i);
-            let new_name = format!("{}.{}.log", self.log_path.display(), i + 1);
-            let _ = std::fs::rename(&old_name, &new_name);
+    
+    /// Get statistics
+    pub async fn stats(&self) -> AuditStats {
+        let entries = self.entries.read().await;
+        
+        let total = entries.len();
+        let mut success_count = 0;
+        let mut failure_count = 0;
+        let mut by_operation = std::collections::HashMap::new();
+        let mut by_agent = std::collections::HashMap::new();
+        
+        for entry in entries.iter() {
+            match entry.result {
+                OperationResult::Success => success_count += 1,
+                _ => failure_count += 1,
+            }
+            
+            *by_operation.entry(format!("{:?}", entry.operation)).or_insert(0) += 1;
+            *by_agent.entry(entry.agent.clone()).or_insert(0) += 1;
         }
+        
+        AuditStats {
+            total_entries: total,
+            success_count,
+            failure_count,
+            by_operation,
+            by_agent,
+        }
+    }
+}
 
-        let rotated = format!("{}.1.log", self.log_path.display());
-        std::fs::rename(&self.log_path, &rotated)?;
-        Ok(())
+/// Filter for audit queries
+#[derive(Debug, Clone, Default)]
+pub struct AuditFilter {
+    pub agent: Option<String>,
+    pub operation: Option<AuditOperation>,
+    pub result: Option<OperationResult>,
+    pub security_level: Option<SecurityLevel>,
+    pub start_time: Option<DateTime<Utc>>,
+    pub end_time: Option<DateTime<Utc>>,
+}
+
+impl AuditFilter {
+    /// Check if entry matches filter
+    pub fn matches(&self, entry: &AuditEntry) -> bool {
+        if let Some(ref agent) = self.agent {
+            if entry.agent != *agent {
+                return false;
+            }
+        }
+        
+        if let Some(ref operation) = self.operation {
+            if std::mem::discriminant(&entry.operation) != std::mem::discriminant(operation) {
+                return false;
+            }
+        }
+        
+        if let Some(ref result) = self.result {
+            if std::mem::discriminant(&entry.result) != std::mem::discriminant(result) {
+                return false;
+            }
+        }
+        
+        if let Some(ref level) = self.security_level {
+            if entry.security_level != *level {
+                return false;
+            }
+        }
+        
+        if let Some(start) = self.start_time {
+            if entry.timestamp < start {
+                return false;
+            }
+        }
+        
+        if let Some(end) = self.end_time {
+            if entry.timestamp > end {
+                return false;
+            }
+        }
+        
+        true
+    }
+}
+
+/// Export format for audit logs
+#[derive(Debug, Clone, Copy)]
+pub enum ExportFormat {
+    Json,
+    Csv,
+}
+
+/// Audit statistics
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditStats {
+    pub total_entries: usize,
+    pub success_count: u64,
+    pub failure_count: u64,
+    pub by_operation: std::collections::HashMap<String, u64>,
+    pub by_agent: std::collections::HashMap<String, u64>,
+}
+
+impl AuditEntry {
+    /// Create new audit entry
+    pub fn new(operation: AuditOperation, agent: String, security_level: SecurityLevel) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4(),
+            operation,
+            agent,
+            target: None,
+            security_level,
+            result: OperationResult::Success,
+            timestamp: Utc::now(),
+            source_ip: None,
+            session_id: None,
+            details: std::collections::HashMap::new(),
+            duration_ms: None,
+        }
+    }
+    
+    /// Set target
+    pub fn with_target(mut self, target: String) -> Self {
+        self.target = Some(target);
+        self
+    }
+    
+    /// Set result
+    pub fn with_result(mut self, result: OperationResult) -> Self {
+        self.result = result;
+        self
+    }
+    
+    /// Set source IP
+    pub fn with_source_ip(mut self, ip: String) -> Self {
+        self.source_ip = Some(ip);
+        self
+    }
+    
+    /// Add detail
+    pub fn add_detail(mut self, key: &str, value: &str) -> Self {
+        self.details.insert(key.to_string(), value.to_string());
+        self
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn audit_event_new_creates_unique_id() {
-        let event1 = AuditEvent::new(AuditEventType::CommandExecution);
-        let event2 = AuditEvent::new(AuditEventType::CommandExecution);
-        assert_ne!(event1.event_id, event2.event_id);
-    }
-
-    #[test]
-    fn audit_event_with_actor() {
-        let event = AuditEvent::new(AuditEventType::CommandExecution).with_actor(
-            "telegram".to_string(),
-            Some("123".to_string()),
-            Some("@alice".to_string()),
-        );
-
-        assert!(event.actor.is_some());
-        let actor = event.actor.as_ref().unwrap();
-        assert_eq!(actor.channel, "telegram");
-        assert_eq!(actor.user_id, Some("123".to_string()));
-        assert_eq!(actor.username, Some("@alice".to_string()));
-    }
-
-    #[test]
-    fn audit_event_with_action() {
-        let event = AuditEvent::new(AuditEventType::CommandExecution).with_action(
-            "ls -la".to_string(),
-            "low".to_string(),
-            false,
-            true,
-        );
-
-        assert!(event.action.is_some());
-        let action = event.action.as_ref().unwrap();
-        assert_eq!(action.command, Some("ls -la".to_string()));
-        assert_eq!(action.risk_level, Some("low".to_string()));
-    }
-
-    #[test]
-    fn audit_event_serializes_to_json() {
-        let event = AuditEvent::new(AuditEventType::CommandExecution)
-            .with_actor("telegram".to_string(), None, None)
-            .with_action("ls".to_string(), "low".to_string(), false, true)
-            .with_result(true, Some(0), 15, None);
-
-        let json = serde_json::to_string(&event);
-        assert!(json.is_ok());
-        let json = json.expect("serialize");
-        let parsed: AuditEvent = serde_json::from_str(json.as_str()).expect("parse");
-        assert!(parsed.actor.is_some());
-        assert!(parsed.action.is_some());
-        assert!(parsed.result.is_some());
-    }
-
-    #[test]
-    fn audit_logger_disabled_does_not_create_file() -> Result<()> {
-        let tmp = TempDir::new()?;
-        let config = AuditConfig {
-            enabled: false,
-            ..Default::default()
-        };
-        let logger = AuditLogger::new(config, tmp.path().to_path_buf())?;
-        let event = AuditEvent::new(AuditEventType::CommandExecution);
-
-        logger.log(&event)?;
-
-        // File should not exist since logging is disabled
-        assert!(!tmp.path().join("audit.log").exists());
-        Ok(())
-    }
-
-    // ── §8.1 Log rotation tests ─────────────────────────────
-
+    
     #[tokio::test]
-    async fn audit_logger_writes_event_when_enabled() -> Result<()> {
-        let tmp = TempDir::new()?;
-        let config = AuditConfig {
-            enabled: true,
-            max_size_mb: 10,
-            ..Default::default()
-        };
-        let logger = AuditLogger::new(config, tmp.path().to_path_buf())?;
-        let event = AuditEvent::new(AuditEventType::CommandExecution)
-            .with_actor("cli".to_string(), None, None)
-            .with_action("ls".to_string(), "low".to_string(), false, true);
-
-        logger.log(&event)?;
-
-        let log_path = tmp.path().join("audit.log");
-        assert!(log_path.exists(), "audit log file must be created");
-
-        let content = tokio::fs::read_to_string(&log_path).await?;
-        assert!(!content.is_empty(), "audit log must not be empty");
-
-        let parsed: AuditEvent = serde_json::from_str(content.trim())?;
-        assert!(parsed.action.is_some());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn audit_log_command_event_writes_structured_entry() -> Result<()> {
-        let tmp = TempDir::new()?;
-        let config = AuditConfig {
-            enabled: true,
-            max_size_mb: 10,
-            ..Default::default()
-        };
-        let logger = AuditLogger::new(config, tmp.path().to_path_buf())?;
-
-        logger.log_command_event(CommandExecutionLog {
-            channel: "telegram",
-            command: "echo test",
-            risk_level: "low",
-            approved: false,
-            allowed: true,
-            success: true,
-            duration_ms: 42,
-        })?;
-
-        let log_path = tmp.path().join("audit.log");
-        let content = tokio::fs::read_to_string(&log_path).await?;
-        let parsed: AuditEvent = serde_json::from_str(content.trim())?;
-
-        let action = parsed.action.unwrap();
-        assert_eq!(action.command, Some("echo test".to_string()));
-        assert_eq!(action.risk_level, Some("low".to_string()));
-        assert!(action.allowed);
-
-        let result = parsed.result.unwrap();
-        assert!(result.success);
-        assert_eq!(result.duration_ms, Some(42));
-        Ok(())
-    }
-
-    #[test]
-    fn audit_rotation_creates_numbered_backup() -> Result<()> {
-        let tmp = TempDir::new()?;
-        let config = AuditConfig {
-            enabled: true,
-            max_size_mb: 0, // Force rotation on first write
-            ..Default::default()
-        };
-        let logger = AuditLogger::new(config, tmp.path().to_path_buf())?;
-
-        // Write initial content that triggers rotation
-        let log_path = tmp.path().join("audit.log");
-        std::fs::write(&log_path, "initial content\n")?;
-
-        let event = AuditEvent::new(AuditEventType::CommandExecution);
-        logger.log(&event)?;
-
-        let rotated = format!("{}.1.log", log_path.display());
-        assert!(
-            std::path::Path::new(&rotated).exists(),
-            "rotation must create .1.log backup"
+    async fn test_audit_log() {
+        let log = AuditLog::new(90);
+        
+        let entry = AuditEntry::new(
+            AuditOperation::TaskExecute,
+            "worker".to_string(),
+            SecurityLevel::Normal,
         );
-        Ok(())
+        
+        log.log(entry).await;
+        
+        let stats = log.stats().await;
+        assert_eq!(stats.total_entries, 1);
+    }
+    
+    #[tokio::test]
+    async fn test_audit_filter() {
+        let log = AuditLog::new(90);
+        
+        let entry = AuditEntry::new(
+            AuditOperation::TaskExecute,
+            "worker".to_string(),
+            SecurityLevel::Normal,
+        );
+        
+        log.log(entry).await;
+        
+        let filter = AuditFilter {
+            agent: Some("worker".to_string()),
+            ..Default::default()
+        };
+        
+        let results = log.query(&filter).await;
+        assert_eq!(results.len(), 1);
     }
 }

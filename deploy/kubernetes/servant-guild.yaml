@@ -1,0 +1,345 @@
+# ServantGuild Kubernetes Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: servant-guild
+  labels:
+    name: servant-guild
+    environment: production
+---
+# ServantGuild ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: servant-guild-config
+  namespace: servant-guild
+data:
+  config.toml: |
+    [server]
+    host = "0.0.0.0"
+    port = 8080
+    metrics_port = 9090
+    
+    [database]
+    url = "postgres://servant:servant@postgres:5432/servant_guild"
+    pool_size = 10
+    
+    [redis]
+    url = "redis://redis:6379"
+    
+    [logging]
+    level = "info"
+    format = "json"
+    path = "/app/logs"
+    
+    [runtime]
+    wasm_memory_limit_mb = 512
+    wasm_time_limit_secs = 60
+    sandbox_enabled = true
+    
+    [consensus]
+    voting_timeout_secs = 3600
+    normal_quorum = 3
+    critical_quorum = 5
+    
+    [evolution]
+    auto_evolve = false
+    require_human_approval = true
+---
+# ServantGuild Secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: servant-guild-secrets
+  namespace: servant-guild
+type: Opaque
+stringData:
+  github-token: "CHANGE_ME"
+  llm-api-keys: |
+    {
+      "openai": "CHANGE_ME",
+      "anthropic": "CHANGE_ME",
+      "deepseek": "CHANGE_ME"
+    }
+---
+# ServantGuild Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: servant-guild
+  namespace: servant-guild
+  labels:
+    app: servant-guild
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: servant-guild
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: servant-guild
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: servant-guild
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: servant-guild
+          image: hanxueyuan/servant-guild:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: RUST_LOG
+              value: "info"
+            - name: RUST_BACKTRACE
+              value: "1"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: servant-guild-db-credentials
+                  key: url
+                  optional: true
+            - name: REDIS_URL
+              value: "redis://redis:6379"
+          envFrom:
+            - configMapRef:
+                name: servant-guild-env
+                optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+            - name: logs
+              mountPath: /app/logs
+            - name: wasm
+              mountPath: /app/wasm
+              readOnly: true
+            - name: secrets
+              mountPath: /app/secrets
+              readOnly: true
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: config
+          configMap:
+            name: servant-guild-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: servant-guild-data
+        - name: logs
+          emptyDir: {}
+        - name: wasm
+          configMap:
+            name: servant-guild-wasm
+            optional: true
+        - name: secrets
+          secret:
+            secretName: servant-guild-secrets
+            defaultMode: 0400
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: servant-guild
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: servant-guild
+---
+# ServantGuild Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: servant-guild
+  namespace: servant-guild
+  labels:
+    app: servant-guild
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app: servant-guild
+---
+# ServantGuild Headless Service (for StatefulSet if needed)
+apiVersion: v1
+kind: Service
+metadata:
+  name: servant-guild-headless
+  namespace: servant-guild
+  labels:
+    app: servant-guild
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: servant-guild
+---
+# ServantGuild HorizontalPodAutoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: servant-guild
+  namespace: servant-guild
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: servant-guild
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+---
+# ServantGuild PodDisruptionBudget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: servant-guild
+  namespace: servant-guild
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: servant-guild
+---
+# ServantGuild PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: servant-guild-data
+  namespace: servant-guild
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+# ServantGuild ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: servant-guild
+  namespace: servant-guild
+automountServiceAccountToken: false
+---
+# ServantGuild Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: servant-guild
+  namespace: servant-guild
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  tls:
+    - hosts:
+        - api.servantguild.dev
+      secretName: servant-guild-tls
+  rules:
+    - host: api.servantguild.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: servant-guild
+                port:
+                  number: 8080

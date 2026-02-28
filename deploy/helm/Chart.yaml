@@ -1,0 +1,42 @@
+apiVersion: v2
+name: servant-guild
+description: A Helm chart for ServantGuild - Multi-Agent Autonomous System
+
+# Chart version
+version: 1.0.0
+
+# Application version
+appVersion: "1.0.0"
+
+type: application
+
+keywords:
+  - multi-agent
+  - wasm
+  - rust
+  - ai
+  - autonomous-system
+
+home: https://github.com/hanxueyuan/servant-guild
+
+sources:
+  - https://github.com/hanxueyuan/servant-guild
+
+maintainers:
+  - name: ServantGuild Team
+    email: team@servantguild.dev
+
+dependencies:
+  - name: postgresql
+    version: "12.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+    
+  - name: redis
+    version: "17.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+
+annotations:
+  artifacthub.io/category: ai-machine-learning
+  artifacthub.io/license: MIT

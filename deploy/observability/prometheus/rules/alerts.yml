@@ -1,0 +1,317 @@
+# Prometheus Alerting Rules for ServantGuild
+# Monitors application health, resource usage, and business metrics
+
+groups:
+  # ===========================================================================
+  # Application Health Alerts
+  # ===========================================================================
+  - name: servant-guild-health
+    rules:
+      - alert: ServantGuildDown
+        expr: up{job="servant-guild"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "ServantGuild instance is down"
+          description: "ServantGuild instance {{ $labels.instance }} has been down for more than 1 minute."
+          runbook_url: "https://docs.servantguild.dev/runbooks/servant-down"
+
+      - alert: ServantGuildHighLatency
+        expr: |
+          histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job="servant-guild"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High latency detected for ServantGuild"
+          description: "99th percentile latency is {{ $value | humanizeDuration }} (threshold: 1s)."
+
+      - alert: ServantGuildHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="servant-guild", status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total{job="servant-guild"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)."
+
+      - alert: ServantGuildMemoryHigh
+        expr: |
+          process_resident_memory_bytes{job="servant-guild"} / process_memory_limit_bytes{job="servant-guild"} > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "ServantGuild memory usage is high"
+          description: "Memory usage is at {{ $value | humanizePercentage }} of limit."
+
+  # ===========================================================================
+  # Wasm Runtime Alerts
+  # ===========================================================================
+  - name: wasm-runtime
+    rules:
+      - alert: WasmMemoryLimitExceeded
+        expr: increase(wasm_memory_limit_exceeded_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Wasm memory limit exceeded"
+          description: "{{ $value }} Wasm modules exceeded memory limit in the last 5 minutes."
+
+      - alert: WasmTimeLimitExceeded
+        expr: increase(wasm_time_limit_exceeded_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Wasm time limit exceeded"
+          description: "{{ $value }} Wasm modules exceeded time limit in the last 5 minutes."
+
+      - alert: WasmModuleLoadFailure
+        expr: increase(wasm_module_load_failures_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High Wasm module load failure rate"
+          description: "{{ $value }} Wasm module load failures in the last 5 minutes."
+
+  # ===========================================================================
+  # Consensus Engine Alerts
+  # ===========================================================================
+  - name: consensus-engine
+    rules:
+      - alert: ConsensusVotingTimeout
+        expr: increase(consensus_voting_timeout_total[1h]) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Consensus voting timeouts detected"
+          description: "{{ $value }} voting timeouts in the last hour. May indicate network issues or agent unavailability."
+
+      - alert: ConsensusQuorumNotReached
+        expr: increase(consensus_quorum_not_reached_total[1h]) > 5
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Consensus quorum failures"
+          description: "{{ $value }} quorum failures in the last hour. Critical decisions may be blocked."
+
+      - alert: ConsensusVotingSlow
+        expr: |
+          histogram_quantile(0.95, rate(consensus_voting_duration_seconds_bucket[5m])) > 60
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Consensus voting is slow"
+          description: "95th percentile voting duration is {{ $value | humanizeDuration }}."
+
+  # ===========================================================================
+  # Agent Health Alerts
+  # ===========================================================================
+  - name: agent-health
+    rules:
+      - alert: AgentInactive
+        expr: agent_last_activity_timestamp_seconds < (time() - 300)
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Agent {{ $labels.agent }} is inactive"
+          description: "Agent {{ $labels.agent }} has shown no activity for more than 5 minutes."
+
+      - alert: AgentHighErrorCount
+        expr: increase(agent_errors_total[1h]) > 50
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Agent {{ $labels.agent }} has high error count"
+          description: "Agent {{ $labels.agent }} encountered {{ $value }} errors in the last hour."
+
+      - alert: AgentTaskQueueBacklog
+        expr: agent_task_queue_size > 100
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Agent {{ $labels.agent }} has task queue backlog"
+          description: "Agent {{ $labels.agent }} has {{ $value }} tasks in queue. May indicate processing bottleneck."
+
+  # ===========================================================================
+  # Database Alerts
+  # ===========================================================================
+  - name: database
+    rules:
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL instance is unreachable."
+
+      - alert: PostgresTooManyConnections
+        expr: |
+          pg_stat_activity_count / pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL connection pool is near capacity"
+          description: "Connection usage is at {{ $value | humanizePercentage }}."
+
+      - alert: PostgresReplicationLag
+        expr: pg_replication_lag_seconds > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL replication lag detected"
+          description: "Replication lag is {{ $value | humanizeDuration }}."
+
+  # ===========================================================================
+  # Redis Alerts
+  # ===========================================================================
+  - name: redis
+    rules:
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Redis is down"
+          description: "Redis instance is unreachable."
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis memory usage is at {{ $value | humanizePercentage }}."
+
+      - alert: RedisConnectionPoolExhausted
+        expr: redis_connected_clients / redis_max_clients > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Redis connection pool is near capacity"
+          description: "Redis connection usage is at {{ $value | humanizePercentage }}."
+
+  # ===========================================================================
+  # Economic Model Alerts
+  # ===========================================================================
+  - name: economic-model
+    rules:
+      - alert: TokenUsageSpike
+        expr: |
+          rate(llm_tokens_total[5m]) > 2 * rate(llm_tokens_total[5m] offset 1h)
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Token usage spike detected"
+          description: "Token usage has doubled compared to an hour ago. May indicate runaway agent behavior."
+
+      - alert: HighAPICost
+        expr: |
+          sum(rate(api_cost_usd_total[1h])) > 10
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High API costs detected"
+          description: "API costs are running at ${{ $value }}/hour. Current spend: ${{ $value | humanize }}."
+
+      - alert: BudgetNearLimit
+        expr: daily_budget_used_ratio > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Daily budget near limit"
+          description: "Daily budget usage is at {{ $value | humanizePercentage }}."
+
+  # ===========================================================================
+  # System Resource Alerts
+  # ===========================================================================
+  - name: system-resources
+    rules:
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is at {{ $value | humanizePercentage }}."
+
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is at {{ $value | humanizePercentage }}."
+
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs"} / node_filesystem_size_bytes) * 100 < 15
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk {{ $labels.mountpoint }} has only {{ $value | humanizePercentage }} free space."
+
+      - alert: DiskSpaceCritical
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs"} / node_filesystem_size_bytes) * 100 < 5
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Critical disk space on {{ $labels.instance }}"
+          description: "Disk {{ $labels.mountpoint }} has only {{ $value | humanizePercentage }} free space. Immediate action required."

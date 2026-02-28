@@ -1,0 +1,264 @@
+# ServantGuild Docker Compose Configuration
+# For local development and testing
+
+version: "3.8"
+
+services:
+  # ===========================================================================
+  # Core Application
+  # ===========================================================================
+  servant-guild:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: runtime
+    image: servant-guild:latest
+    container_name: servant-guild
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # Main API
+      - "9090:9090"   # Metrics
+    environment:
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=1
+      - DATABASE_URL=postgres://servant:servant@postgres:5432/servant_guild
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./config:/app/config:ro
+      - servant-data:/app/data
+      - servant-logs:/app/logs
+      - ./wasm:/app/wasm:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - servant-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ===========================================================================
+  # Database (PostgreSQL)
+  # ===========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: servant-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=servant
+      - POSTGRES_PASSWORD=servant
+      - POSTGRES_DB=servant_guild
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U servant -d servant_guild"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - servant-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # ===========================================================================
+  # Cache (Redis)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: servant-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - servant-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # ===========================================================================
+  # Observability Stack
+  # ===========================================================================
+  
+  # Prometheus - Metrics collection
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: servant-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9091:9090"
+    networks:
+      - servant-network
+    profiles:
+      - observability
+
+  # Grafana - Visualization
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: servant-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - servant-network
+    profiles:
+      - observability
+
+  # Loki - Log aggregation
+  loki:
+    image: grafana/loki:2.8.0
+    container_name: servant-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - servant-network
+    profiles:
+      - observability
+
+  # Promtail - Log shipping
+  promtail:
+    image: grafana/promtail:2.8.0
+    container_name: servant-promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - servant-logs:/var/log/servant-guild:ro
+      - /var/log:/var/log/host:ro
+    depends_on:
+      - loki
+    networks:
+      - servant-network
+    profiles:
+      - observability
+
+  # Jaeger - Distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.47
+    container_name: servant-jaeger
+    restart: unless-stopped
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"  # UI
+      - "4318:4318"    # OTLP HTTP
+      - "4317:4317"    # OTLP gRPC
+    networks:
+      - servant-network
+    profiles:
+      - observability
+
+  # ===========================================================================
+  # Development Tools
+  # ===========================================================================
+  
+  # Adminer - Database management
+  adminer:
+    image: adminer:latest
+    container_name: servant-adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+    networks:
+      - servant-network
+    profiles:
+      - dev
+
+  # Redis Commander - Redis management
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: servant-redis-commander
+    restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8082:8081"
+    depends_on:
+      - redis
+    networks:
+      - servant-network
+    profiles:
+      - dev
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  servant-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  servant-data:
+    driver: local
+  servant-logs:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local

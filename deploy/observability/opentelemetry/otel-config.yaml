@@ -1,0 +1,190 @@
+# OpenTelemetry Configuration for ServantGuild
+# Distributed tracing configuration
+
+receivers:
+  # OTLP Receiver - accepts traces from applications
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 16
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "*"
+
+  # Jaeger Receiver - for legacy applications
+  jaeger:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:14250
+      thrift_binary:
+        endpoint: 0.0.0.0:6832
+      thrift_compact:
+        endpoint: 0.0.0.0:6831
+      thrift_http:
+        endpoint: 0.0.0.0:14268
+
+  # Zipkin Receiver
+  zipkin:
+    endpoint: 0.0.0.0:9411
+
+  # Prometheus Receiver - for metrics
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'servant-guild'
+          static_configs:
+            - targets: ['servant-guild:9090']
+
+processors:
+  # Batch processor - improves throughput
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  # Memory limiter
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Resource processor - adds attributes to all spans
+  resource:
+    attributes:
+      - key: service.name
+        value: servant-guild
+        action: upsert
+      - key: service.version
+        value: "1.0.0"
+        action: upsert
+      - key: deployment.environment
+        value: production
+        action: upsert
+      - key: service.namespace
+        value: servant-guild
+        action: upsert
+
+  # Attributes processor - add custom attributes
+  attributes:
+    actions:
+      - key: db.system
+        value: postgresql
+        action: upsert
+      - key: cache.system
+        value: redis
+        action: upsert
+
+  # Span processor - customize span names
+  span:
+    name:
+      from_attributes:
+        - http.method
+        - http.route
+      separator: " "
+
+  # Tail sampling processor - reduce storage costs
+  tail_sampling:
+    decision_wait: 10s
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow-traces
+        type: latency
+        latency:
+          threshold_ms: 1000
+      - name: critical-operations
+        type: string_attribute
+        string_attribute:
+          key: operation.type
+          values: [consensus, evolution, execution]
+      - name: probabilistic
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+
+exporters:
+  # Jaeger Exporter - send to Jaeger backend
+  jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+
+  # OTLP Exporter - for external backends
+  otlp:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  # Prometheus Exporter - expose metrics
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: otel
+
+  # Logging Exporter - for debugging
+  logging:
+    loglevel: info
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+  # AWS X-Ray Exporter (optional)
+  # awsxray:
+  #   region: us-east-1
+
+  # Google Cloud Exporter (optional)
+  # googlecloud:
+  #   project: servant-guild-prod
+
+extensions:
+  # Health check extension
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  # zPages extension - for debugging
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+  # pprof extension - for profiling
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # Memory ballast
+  memory_ballast:
+    size_mib: 256
+
+service:
+  extensions: [health_check, zpages, pprof, memory_ballast]
+
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers: [otlp, jaeger, zipkin]
+      processors: [memory_limiter, resource, attributes, span, batch]
+      exporters: [jaeger, logging]
+
+    # Metrics pipeline
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheus, logging]
+
+    # Logs pipeline
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [logging]
+
+  telemetry:
+    logs:
+      level: info
+      development: false
+      encoding: json
+      output_paths: ["/var/log/otel/otel.log"]
+      error_output_paths: ["/var/log/otel/otel-error.log"]
+    metrics:
+      level: detailed
+      address: 0.0.0.0:8888

@@ -1,107 +1,198 @@
-//! Security subsystem for policy enforcement, sandboxing, and secret management.
+//! Security Hardening Module
 //!
-//! This module provides the security infrastructure for ZeroClaw. The core type
-//! [`SecurityPolicy`] defines autonomy levels, workspace boundaries, and
-//! access-control rules that are enforced across the tool and runtime subsystems.
-//! [`PairingGuard`] implements device pairing for channel authentication, and
-//! [`SecretStore`] handles encrypted credential storage.
-//!
-//! OS-level isolation is provided through the [`Sandbox`] trait defined in
-//! [`traits`], with pluggable backends including Docker, Firejail, Bubblewrap,
-//! and Landlock. The [`create_sandbox`] function selects the best available
-//! backend at runtime. An [`AuditLogger`] records security-relevant events for
-//! forensic review.
-//!
-//! # Extension
-//!
-//! To add a new sandbox backend, implement [`Sandbox`] in a new submodule and
-//! register it in [`detect::create_sandbox`]. See `AGENTS.md` §7.5 for security
-//! change guidelines.
+//! Provides security primitives for:
+//! - Network isolation and segmentation
+//! - Secrets management and encryption
+//! - Input validation and sanitization
+//! - Audit logging and compliance
 
 pub mod audit;
-#[cfg(feature = "sandbox-bubblewrap")]
-pub mod bubblewrap;
-pub mod detect;
-pub mod docker;
-
-// Prompt injection defense (contributed from RustyClaw, MIT licensed)
-pub mod domain_matcher;
-pub mod estop;
-#[cfg(target_os = "linux")]
-pub mod firejail;
-#[cfg(feature = "sandbox-landlock")]
-pub mod landlock;
-pub mod leak_detector;
-pub mod otp;
-pub mod pairing;
-pub mod policy;
-pub mod prompt_guard;
+pub mod encryption;
+pub mod network;
 pub mod secrets;
-pub mod syscall_anomaly;
-pub mod traits;
+pub mod validation;
 
-#[allow(unused_imports)]
-pub use audit::{AuditEvent, AuditEventType, AuditLogger};
-#[allow(unused_imports)]
-pub use detect::create_sandbox;
-pub use domain_matcher::DomainMatcher;
-#[allow(unused_imports)]
-pub use estop::{EstopLevel, EstopManager, EstopState, ResumeSelector};
-#[allow(unused_imports)]
-pub use otp::OtpValidator;
-#[allow(unused_imports)]
-pub use pairing::PairingGuard;
-pub use policy::{AutonomyLevel, SecurityPolicy};
-#[allow(unused_imports)]
-pub use secrets::SecretStore;
-pub use syscall_anomaly::SyscallAnomalyDetector;
-#[allow(unused_imports)]
-pub use traits::{NoopSandbox, Sandbox};
-// Prompt injection defense exports
-#[allow(unused_imports)]
-pub use leak_detector::{LeakDetector, LeakResult};
-#[allow(unused_imports)]
-pub use prompt_guard::{GuardAction, GuardResult, PromptGuard};
+use serde::{Deserialize, Serialize};
 
-/// Redact sensitive values for safe logging. Shows first 4 chars + "***" suffix.
-/// This function intentionally breaks the data-flow taint chain for static analysis.
-pub fn redact(value: &str) -> String {
-    if value.len() <= 4 {
-        "***".to_string()
-    } else {
-        format!("{}***", &value[..4])
+pub use audit::{AuditLog, AuditEntry};
+pub use encryption::{EncryptionKey, Encryptor};
+pub use network::{NetworkPolicy, NetworkIsolation};
+pub use secrets::{SecretsManager, Secret};
+pub use validation::{InputValidator, ValidationError};
+
+/// Security configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityConfig {
+    /// Enable network isolation
+    pub enable_network_isolation: bool,
+    /// Enable secrets encryption
+    pub enable_encryption: bool,
+    /// Enable audit logging
+    pub enable_audit_logging: bool,
+    /// Audit log retention days
+    pub audit_retention_days: u32,
+    /// Enable input validation
+    pub enable_input_validation: bool,
+    /// Maximum request size in bytes
+    pub max_request_size: usize,
+    /// Enable rate limiting
+    pub enable_rate_limiting: bool,
+    /// Rate limit requests per minute
+    pub rate_limit_per_minute: u32,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            enable_network_isolation: true,
+            enable_encryption: true,
+            enable_audit_logging: true,
+            audit_retention_days: 90,
+            enable_input_validation: true,
+            max_request_size: 10 * 1024 * 1024, // 10MB
+            enable_rate_limiting: true,
+            rate_limit_per_minute: 100,
+        }
+    }
+}
+
+/// Security level for operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SecurityLevel {
+    /// Standard operations
+    Normal,
+    /// Elevated privileges required
+    Elevated,
+    /// Critical operations requiring multi-party authorization
+    Critical,
+}
+
+/// Security context for operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityContext {
+    /// Operation ID
+    pub operation_id: uuid::Uuid,
+    /// Agent performing the operation
+    pub agent: String,
+    /// Security level
+    pub level: SecurityLevel,
+    /// Timestamp
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Source IP (if applicable)
+    pub source_ip: Option<String>,
+    /// Additional metadata
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+impl SecurityContext {
+    /// Create new security context
+    pub fn new(agent: String, level: SecurityLevel) -> Self {
+        Self {
+            operation_id: uuid::Uuid::new_v4(),
+            agent,
+            level,
+            timestamp: chrono::Utc::now(),
+            source_ip: None,
+            metadata: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// Security manager
+pub struct SecurityManager {
+    config: SecurityConfig,
+    audit_log: AuditLog,
+    secrets_manager: SecretsManager,
+    encryptor: Encryptor,
+    validator: InputValidator,
+}
+
+impl SecurityManager {
+    /// Create new security manager
+    pub fn new(config: SecurityConfig) -> Self {
+        let audit_log = AuditLog::new(config.audit_retention_days);
+        let secrets_manager = SecretsManager::new();
+        let encryptor = Encryptor::new();
+        let validator = InputValidator::new(config.max_request_size);
+        
+        Self {
+            config,
+            audit_log,
+            secrets_manager,
+            encryptor,
+            validator,
+        }
+    }
+    
+    /// Create security context for an operation
+    pub fn create_context(&self, agent: &str, level: SecurityLevel) -> SecurityContext {
+        SecurityContext::new(agent.to_string(), level)
+    }
+    
+    /// Log an audit entry
+    pub async fn log_audit(&self, entry: AuditEntry) {
+        if self.config.enable_audit_logging {
+            self.audit_log.log(entry).await;
+        }
+    }
+    
+    /// Get a secret
+    pub async fn get_secret(&self, key: &str) -> Result<String, String> {
+        self.secrets_manager.get(key).await
+    }
+    
+    /// Set a secret
+    pub async fn set_secret(&self, key: &str, value: &str) -> Result<(), String> {
+        self.secrets_manager.set(key, value).await
+    }
+    
+    /// Encrypt data
+    pub fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>, String> {
+        if self.config.enable_encryption {
+            self.encryptor.encrypt(data)
+        } else {
+            Ok(data.to_vec())
+        }
+    }
+    
+    /// Decrypt data
+    pub fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, String> {
+        if self.config.enable_encryption {
+            self.encryptor.decrypt(data)
+        } else {
+            Ok(data.to_vec())
+        }
+    }
+    
+    /// Validate input
+    pub fn validate_input(&self, input: &str) -> Result<(), ValidationError> {
+        if self.config.enable_input_validation {
+            self.validator.validate(input)
+        } else {
+            Ok(())
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    
     #[test]
-    fn reexported_policy_and_pairing_types_are_usable() {
-        let policy = SecurityPolicy::default();
-        assert_eq!(policy.autonomy, AutonomyLevel::Supervised);
-
-        let guard = PairingGuard::new(false, &[]);
-        assert!(!guard.require_pairing());
+    fn test_security_config_default() {
+        let config = SecurityConfig::default();
+        
+        assert!(config.enable_network_isolation);
+        assert!(config.enable_encryption);
+        assert!(config.enable_audit_logging);
+        assert_eq!(config.audit_retention_days, 90);
     }
-
+    
     #[test]
-    fn reexported_secret_store_encrypt_decrypt_roundtrip() {
-        let temp = tempfile::tempdir().unwrap();
-        let store = SecretStore::new(temp.path(), false);
-
-        let encrypted = store.encrypt("top-secret").unwrap();
-        let decrypted = store.decrypt(&encrypted).unwrap();
-
-        assert_eq!(decrypted, "top-secret");
-    }
-
-    #[test]
-    fn redact_hides_most_of_value() {
-        assert_eq!(redact("abcdefgh"), "abcd***");
-        assert_eq!(redact("ab"), "***");
-        assert_eq!(redact(""), "***");
-        assert_eq!(redact("12345"), "1234***");
+    fn test_security_context() {
+        let ctx = SecurityContext::new("coordinator".to_string(), SecurityLevel::Normal);
+        
+        assert_eq!(ctx.agent, "coordinator");
+        assert_eq!(ctx.level, SecurityLevel::Normal);
     }
 }
