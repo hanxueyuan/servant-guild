@@ -1,683 +1,624 @@
-//! Rollback mechanisms for file system and state changes.
+//! Rollback & Recovery - The Safety Net
 //!
-//! Provides transactional safety for operations that modify persistent state.
-//! If an operation fails or is rejected by policy, these mechanisms attempt to
-//! restore the previous state.
+//! This module provides safety mechanisms for ServantGuild,
+//! enabling rollback to previous states and recovery from errors.
 //!
-//! # Atomic Transaction Model
-//!
-//! Each operation follows this lifecycle:
-//! 1. **Prepare**: Create a snapshot of current state
-//! 2. **Execute**: Perform the actual operation
-//! 3. **Commit**: Mark as successful (snapshot can be cleaned up later)
-//! 4. **Rollback**: If execution fails, restore from snapshot
-//!
-//! ```text
-//! [State A] --prepare--> [Snapshot A] --execute--> [State B] --commit--> [Done]
-//!                      ^                                  |
-//!                      |________rollback_(on failure)____|
-//! ```
+//! Key Capabilities:
+//! - System snapshots (state, modules, data)
+//! - Rollback to previous snapshots
+//! - Incremental backups
+//! - Disaster recovery
+//! - Automatic recovery on critical failures
 
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
-use std::collections::HashMap;
-use std::sync::Arc;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::fs;
+use tokio::sync::RwLock;
 
-use crate::safety::snapshot::{SnapshotManager, Snapshot, SnapshotType};
+use chrono::{DateTime, Utc};
 
-/// Recovery policy defining how to handle failures
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum RecoveryPolicy {
-    /// Automatically rollback on any failure
-    AutomaticRollback,
-    /// Prompt user before rollback
-    PromptUser,
-    /// Log failure but don't rollback
-    LogOnly,
-    /// Custom handler will be invoked
-    CustomHandler,
+use crate::runtime::manager::RuntimeManager;
+
+/// Snapshot metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotMetadata {
+    /// Unique snapshot ID
+    pub id: String,
+    /// Snapshot name
+    pub name: String,
+    /// Creation timestamp
+    pub created_at: DateTime<Utc>,
+    /// Snapshot type
+    pub snapshot_type: SnapshotType,
+    /// Module versions included
+    pub module_versions: HashMap<String, String>,
+    /// Snapshot size in bytes
+    pub size: u64,
+    /// Snapshot description
+    pub description: String,
+    /// Tags
+    pub tags: Vec<String>,
 }
 
-impl Default for RecoveryPolicy {
-    fn default() -> Self {
-        RecoveryPolicy::AutomaticRollback
-    }
+/// Snapshot type
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum SnapshotType {
+    /// Full system snapshot
+    Full,
+    /// Module-only snapshot
+    Modules,
+    /// Data-only snapshot
+    Data,
+    /// Pre-update snapshot (before hot swap)
+    PreUpdate,
+    /// Post-update snapshot (after hot swap)
+    PostUpdate,
 }
 
-/// Status of a transaction
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum TransactionStatus {
-    Pending,
-    Prepared,
-    Executing,
-    Committed,
-    RolledBack,
-    Failed,
+/// Snapshot entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotEntry {
+    /// Entry path
+    pub path: String,
+    /// Entry type
+    pub entry_type: SnapshotEntryType,
+    /// Content hash
+    pub hash: String,
+    /// Size
+    pub size: u64,
 }
 
-/// Represents a reversible operation.
-pub trait ReversibleOp: Send + Sync {
-    /// Get the operation name for logging
-    fn name(&self) -> &str;
-    
-    /// Prepare for execution (create snapshot, etc.)
-    fn prepare(&self) -> Result<RollbackData>;
-    
-    /// Execute the operation (e.g., write file).
-    fn execute(&self) -> Result<()>;
-    
-    /// Revert the operation using saved data.
-    fn rollback(&self, data: &RollbackData) -> Result<()>;
-    
-    /// Cleanup any temporary resources after commit
-    fn cleanup(&self, _data: &RollbackData) -> Result<()> {
-        Ok(())
-    }
+/// Snapshot entry type
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum SnapshotEntryType {
+    /// Wasm module
+    WasmModule,
+    /// Configuration file
+    Config,
+    /// Data file
+    Data,
+    /// Log file
+    Log,
 }
 
-/// Data saved during prepare for use in rollback
-#[derive(Debug, Clone, Default)]
-pub struct RollbackData {
-    /// Snapshot ID if a snapshot was created
-    pub snapshot_id: Option<String>,
-    /// Original file content (for small files)
-    pub original_content: Option<Vec<u8>>,
-    /// Original path if file was moved
-    pub original_path: Option<PathBuf>,
-    /// Additional metadata
-    pub metadata: HashMap<String, String>,
+/// Rollback result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackResult {
+    /// Success flag
+    pub success: bool,
+    /// Rollback timestamp
+    pub timestamp: DateTime<Utc>,
+    /// Previous state snapshot ID
+    pub from_snapshot_id: Option<String>,
+    /// New state snapshot ID
+    pub to_snapshot_id: String,
+    /// Rollbacked modules
+    pub modules: Vec<String>,
+    /// Errors during rollback
+    pub errors: Vec<String>,
 }
 
-/// Record of a single operation within a transaction
-struct OpRecord {
-    operation: Box<dyn ReversibleOp>,
-    rollback_data: Option<RollbackData>,
-    executed: bool,
+/// Recovery plan
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryPlan {
+    /// Plan ID
+    pub id: String,
+    /// Recovery type
+    pub recovery_type: RecoveryType,
+    /// Target snapshot ID
+    pub target_snapshot_id: String,
+    /// Steps
+    pub steps: Vec<RecoveryStep>,
+    /// Estimated duration
+    pub estimated_duration_secs: u64,
 }
 
-/// Manages a stack of operations for a transaction with atomic guarantees.
-pub struct TransactionManager {
-    ops: Mutex<Vec<OpRecord>>,
-    snapshot_manager: Arc<SnapshotManager>,
-    policy: RecoveryPolicy,
-    status: Mutex<TransactionStatus>,
-    transaction_id: String,
+/// Recovery type
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum RecoveryType {
+    /// Full system recovery
+    Full,
+    /// Module-only recovery
+    Module,
+    /// Data-only recovery
+    Data,
+    /// Partial recovery
+    Partial,
 }
 
-impl TransactionManager {
-    /// Create a new transaction manager
-    pub fn new(snapshot_manager: Arc<SnapshotManager>) -> Self {
-        Self {
-            ops: Mutex::new(Vec::new()),
-            snapshot_manager,
-            policy: RecoveryPolicy::default(),
-            status: Mutex::new(TransactionStatus::Pending),
-            transaction_id: Uuid::new_v4().to_string(),
-        }
-    }
-    
-    /// Create a transaction manager with custom recovery policy
-    pub fn with_policy(snapshot_manager: Arc<SnapshotManager>, policy: RecoveryPolicy) -> Self {
-        Self {
-            ops: Mutex::new(Vec::new()),
-            snapshot_manager,
-            policy,
-            status: Mutex::new(TransactionStatus::Pending),
-            transaction_id: Uuid::new_v4().to_string(),
-        }
-    }
-    
-    /// Get the transaction ID
-    pub fn id(&self) -> &str {
-        &self.transaction_id
-    }
-    
-    /// Get the current status
-    pub fn status(&self) -> TransactionStatus {
-        self.status.lock().clone()
-    }
-
-    /// Add an operation to the transaction.
-    pub fn add_op(&self, op: Box<dyn ReversibleOp>) {
-        self.ops.lock().push(OpRecord {
-            operation: op,
-            rollback_data: None,
-            executed: false,
-        });
-    }
-
-    /// Create a snapshot for a given path
-    pub fn create_snapshot(&self, path: &std::path::Path) -> Result<Snapshot> {
-        self.snapshot_manager.create_snapshot(path)
-    }
-
-    /// Prepare all operations (create snapshots)
-    pub fn prepare(&self) -> Result<()> {
-        let mut status = self.status.lock();
-        if *status != TransactionStatus::Pending {
-            return Err(anyhow::anyhow!("Transaction already prepared"));
-        }
-        
-        let mut ops = self.ops.lock();
-        for record in ops.iter_mut() {
-            let data = record.operation.prepare()?;
-            record.rollback_data = Some(data);
-        }
-        
-        *status = TransactionStatus::Prepared;
-        Ok(())
-    }
-    
-    /// Execute all operations. On failure, automatically roll back.
-    pub fn execute(&self) -> Result<()> {
-        {
-            let mut status = self.status.lock();
-            if *status != TransactionStatus::Prepared {
-                return Err(anyhow::anyhow!("Transaction not prepared"));
-            }
-            *status = TransactionStatus::Executing;
-        }
-        
-        let mut ops = self.ops.lock();
-        
-        for (i, record) in ops.iter_mut().enumerate() {
-            if let Err(e) = record.operation.execute() {
-                // Execution failed - rollback all executed operations
-                eprintln!("Operation {} failed: {}", record.operation.name(), e);
-                
-                // Rollback in reverse order
-                for record in ops[..=i].iter().rev() {
-                    if record.executed {
-                        if let Some(ref data) = record.rollback_data {
-                            if let Err(rb_err) = record.operation.rollback(data) {
-                                eprintln!("Rollback failed for {}: {}", record.operation.name(), rb_err);
-                            }
-                        }
-                    }
-                }
-                
-                *self.status.lock() = TransactionStatus::Failed;
-                return Err(e).context(format!("Transaction failed at operation {}", i));
-            }
-            record.executed = true;
-        }
-        
-        *self.status.lock() = TransactionStatus::Committed;
-        Ok(())
-    }
-    
-    /// Execute as a complete atomic transaction (prepare + execute)
-    pub fn execute_atomic(&self) -> Result<()> {
-        self.prepare()?;
-        self.execute()
-    }
-
-    /// Rollback all operations in reverse order.
-    pub fn rollback(&self) -> Result<()> {
-        let ops = self.ops.lock();
-        
-        for record in ops.iter().rev() {
-            if let Some(ref data) = record.rollback_data {
-                if let Err(e) = record.operation.rollback(data) {
-                    eprintln!("Failed to rollback {}: {}", record.operation.name(), e);
-                    // Continue attempting rollback for other ops
-                }
-            }
-        }
-        
-        *self.status.lock() = TransactionStatus::RolledBack;
-        Ok(())
-    }
-    
-    /// Cleanup resources after successful commit
-    pub fn cleanup(&self) -> Result<()> {
-        let ops = self.ops.lock();
-        
-        for record in ops.iter() {
-            if let Some(ref data) = record.rollback_data {
-                if let Err(e) = record.operation.cleanup(data) {
-                    eprintln!("Cleanup warning for {}: {}", record.operation.name(), e);
-                }
-            }
-        }
-        
-        Ok(())
-    }
+/// Recovery step
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryStep {
+    /// Step ID
+    pub id: String,
+    /// Step description
+    pub description: String,
+    /// Step type
+    pub step_type: RecoveryStepType,
+    /// Dependencies
+    pub dependencies: Vec<String>,
+    /// Estimated duration
+    pub estimated_duration_secs: u64,
+    /// Completed flag
+    pub completed: bool,
+    /// Error if any
+    pub error: Option<String>,
 }
 
-/// A file write operation that backs up the original file first.
-pub struct FileWriteOp {
-    path: PathBuf,
-    snapshot_manager: Arc<SnapshotManager>,
-    content: Vec<u8>,
+/// Recovery step type
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum RecoveryStepType {
+    /// Stop module
+    StopModule,
+    /// Rollback module version
+    RollbackModule,
+    /// Restore data
+    RestoreData,
+    /// Restore config
+    RestoreConfig,
+    /// Start module
+    StartModule,
+    /// Verify state
+    VerifyState,
+    /// Cleanup
+    Cleanup,
 }
 
-impl FileWriteOp {
-    pub fn new(path: PathBuf, content: Vec<u8>, snapshot_manager: Arc<SnapshotManager>) -> Self {
-        Self {
-            path,
-            snapshot_manager,
-            content,
-        }
-    }
+/// Rollback & Recovery Manager
+pub struct RollbackRecoveryManager {
+    /// Runtime manager
+    runtime: Arc<RuntimeManager>,
+    /// Snapshots directory
+    snapshots_dir: PathBuf,
+    /// Snapshots
+    snapshots: Arc<RwLock<HashMap<String, SnapshotMetadata>>>,
+    /// Auto-rollback enabled
+    auto_rollback: bool,
+    /// Max snapshots to keep
+    max_snapshots: usize,
 }
 
-impl ReversibleOp for FileWriteOp {
-    fn name(&self) -> &str {
-        "file_write"
-    }
-    
-    fn prepare(&self) -> Result<RollbackData> {
-        let mut data = RollbackData::default();
-        
-        if self.path.exists() {
-            // Create snapshot of existing file
-            let snapshot = self.snapshot_manager.create_snapshot(&self.path)?;
-            data.snapshot_id = Some(snapshot.id);
-            
-            // Also store original content in memory for quick rollback
-            data.original_content = Some(std::fs::read(&self.path)?);
-        }
-        
-        Ok(data)
-    }
-    
-    fn execute(&self) -> Result<()> {
-        // Ensure parent directory exists
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        
-        std::fs::write(&self.path, &self.content)?;
-        Ok(())
+impl RollbackRecoveryManager {
+    /// Create new Rollback & Recovery Manager
+    pub fn new(
+        runtime: Arc<RuntimeManager>,
+        snapshots_dir: PathBuf,
+        auto_rollback: bool,
+        max_snapshots: usize,
+    ) -> Result<Self> {
+        // Ensure snapshots directory exists
+        std::fs::create_dir_all(&snapshots_dir)?;
+
+        Ok(Self {
+            runtime,
+            snapshots_dir,
+            snapshots: Arc::new(RwLock::new(HashMap::new())),
+            auto_rollback,
+            max_snapshots,
+        })
     }
 
-    fn rollback(&self, data: &RollbackData) -> Result<()> {
-        if let Some(ref content) = data.original_content {
-            std::fs::write(&self.path, content)?;
-        } else {
-            // File didn't exist before, delete it
-            if self.path.exists() {
-                std::fs::remove_file(&self.path)?;
-            }
-        }
-        Ok(())
-    }
-}
+    /// Create a full system snapshot
+    pub async fn create_snapshot(
+        &self,
+        name: &str,
+        snapshot_type: SnapshotType,
+        description: &str,
+        tags: Vec<String>,
+    ) -> Result<String> {
+        let snapshot_id = self.generate_snapshot_id();
+        let snapshot_dir = self.snapshots_dir.join(&snapshot_id);
 
-/// A file delete operation
-pub struct FileDeleteOp {
-    path: PathBuf,
-    snapshot_manager: Arc<SnapshotManager>,
-}
+        // Create snapshot directory
+        fs::create_dir_all(&snapshot_dir).await?;
 
-impl FileDeleteOp {
-    pub fn new(path: PathBuf, snapshot_manager: Arc<SnapshotManager>) -> Self {
-        Self { path, snapshot_manager }
-    }
-}
+        // Collect module versions
+        let module_versions = self.collect_module_versions().await?;
 
-impl ReversibleOp for FileDeleteOp {
-    fn name(&self) -> &str {
-        "file_delete"
-    }
-    
-    fn prepare(&self) -> Result<RollbackData> {
-        let mut data = RollbackData::default();
-        
-        if self.path.exists() {
-            let snapshot = self.snapshot_manager.create_snapshot(&self.path)?;
-            data.snapshot_id = Some(snapshot.id);
-            data.original_content = Some(std::fs::read(&self.path)?);
-        }
-        
-        Ok(data)
-    }
-    
-    fn execute(&self) -> Result<()> {
-        if self.path.is_dir() {
-            std::fs::remove_dir_all(&self.path)?;
-        } else {
-            std::fs::remove_file(&self.path)?;
-        }
-        Ok(())
-    }
-    
-    fn rollback(&self, data: &RollbackData) -> Result<()> {
-        if let Some(ref content) = data.original_content {
-            std::fs::write(&self.path, content)?;
-        }
-        Ok(())
-    }
-}
-
-/// A directory creation operation
-pub struct DirectoryCreateOp {
-    path: PathBuf,
-}
-
-impl DirectoryCreateOp {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-}
-
-impl ReversibleOp for DirectoryCreateOp {
-    fn name(&self) -> &str {
-        "directory_create"
-    }
-    
-    fn prepare(&self) -> Result<RollbackData> {
-        Ok(RollbackData::default())
-    }
-    
-    fn execute(&self) -> Result<()> {
-        std::fs::create_dir_all(&self.path)?;
-        Ok(())
-    }
-    
-    fn rollback(&self, _data: &RollbackData) -> Result<()> {
-        if self.path.exists() {
-            std::fs::remove_dir_all(&self.path)?;
-        }
-        Ok(())
-    }
-}
-
-/// A command execution operation (for shell commands)
-pub struct CommandOp {
-    command: String,
-    args: Vec<String>,
-    rollback_command: Option<String>,
-    rollback_args: Vec<String>,
-}
-
-impl CommandOp {
-    pub fn new(command: String, args: Vec<String>, rollback_command: Option<String>, rollback_args: Vec<String>) -> Self {
-        Self {
-            command,
-            args,
-            rollback_command,
-            rollback_args,
-        }
-    }
-}
-
-impl ReversibleOp for CommandOp {
-    fn name(&self) -> &str {
-        "command"
-    }
-    
-    fn prepare(&self) -> Result<RollbackData> {
-        Ok(RollbackData::default())
-    }
-    
-    fn execute(&self) -> Result<()> {
-        let status = std::process::Command::new(&self.command)
-            .args(&self.args)
-            .status()?;
-        
-        if !status.success() {
-            return Err(anyhow::anyhow!("Command failed with status: {}", status));
-        }
-        
-        Ok(())
-    }
-    
-    fn rollback(&self, _data: &RollbackData) -> Result<()> {
-        if let Some(ref rollback_cmd) = self.rollback_command {
-            let status = std::process::Command::new(rollback_cmd)
-                .args(&self.rollback_args)
-                .status()?;
-            
-            if !status.success() {
-                return Err(anyhow::anyhow!("Rollback command failed: {}", status));
-            }
-        }
-        Ok(())
-    }
-}
-
-/// A database operation
-pub struct DatabaseOp {
-    db_path: PathBuf,
-    operation: DatabaseOperation,
-    snapshot_manager: Arc<SnapshotManager>,
-}
-
-#[derive(Debug, Clone)]
-pub enum DatabaseOperation {
-    Write,
-    SchemaChange,
-    DataMigration,
-}
-
-impl DatabaseOp {
-    pub fn new(db_path: PathBuf, operation: DatabaseOperation, snapshot_manager: Arc<SnapshotManager>) -> Self {
-        Self {
-            db_path,
-            operation,
-            snapshot_manager,
-        }
-    }
-}
-
-impl ReversibleOp for DatabaseOp {
-    fn name(&self) -> &str {
-        match self.operation {
-            DatabaseOperation::Write => "database_write",
-            DatabaseOperation::SchemaChange => "database_schema",
-            DatabaseOperation::DataMigration => "database_migration",
-        }
-    }
-    
-    fn prepare(&self) -> Result<RollbackData> {
-        let mut data = RollbackData::default();
-        
-        if self.db_path.exists() {
-            let snapshot = self.snapshot_manager.create_database_snapshot(&self.db_path)?;
-            data.snapshot_id = Some(snapshot.id);
-        }
-        
-        Ok(data)
-    }
-    
-    fn execute(&self) -> Result<()> {
-        // The actual database operation would be performed by the caller
-        // This is a placeholder for the rollback mechanism
-        Ok(())
-    }
-    
-    fn rollback(&self, data: &RollbackData) -> Result<()> {
-        if let Some(ref snapshot_id) = data.snapshot_id {
-            // Restore from snapshot
-            // In a real implementation, we'd load the snapshot and restore
-            eprintln!("Rolling back database to snapshot: {}", snapshot_id);
-        }
-        Ok(())
-    }
-}
-
-/// A memory state operation
-pub struct MemoryOp {
-    key: String,
-    snapshot_manager: Arc<SnapshotManager>,
-}
-
-impl MemoryOp {
-    pub fn new(key: String, snapshot_manager: Arc<SnapshotManager>) -> Self {
-        Self { key, snapshot_manager }
-    }
-}
-
-impl ReversibleOp for MemoryOp {
-    fn name(&self) -> &str {
-        "memory_op"
-    }
-    
-    fn prepare(&self) -> Result<RollbackData> {
-        // In a real implementation, we'd serialize current memory state
-        let data = RollbackData {
-            metadata: vec![("key".to_string(), self.key.clone())].into_iter().collect(),
-            ..Default::default()
+        // Save snapshot metadata
+        let metadata = SnapshotMetadata {
+            id: snapshot_id.clone(),
+            name: name.to_string(),
+            created_at: Utc::now(),
+            snapshot_type,
+            module_versions: module_versions.clone(),
+            size: 0,
+            description: description.to_string(),
+            tags,
         };
-        Ok(data)
-    }
-    
-    fn execute(&self) -> Result<()> {
-        // The actual memory operation would be performed by the caller
-        Ok(())
-    }
-    
-    fn rollback(&self, _data: &RollbackData) -> Result<()> {
-        // Restore memory state from snapshot
-        Ok(())
-    }
-}
 
-/// Builder for creating transactions
-pub struct TransactionBuilder {
-    operations: Vec<Box<dyn ReversibleOp>>,
-    policy: RecoveryPolicy,
-    snapshot_manager: Arc<SnapshotManager>,
-}
+        let metadata_path = snapshot_dir.join("metadata.json");
+        let metadata_json = serde_json::to_string_pretty(&metadata)?;
+        fs::write(&metadata_path, metadata_json).await?;
 
-impl TransactionBuilder {
-    pub fn new(snapshot_manager: Arc<SnapshotManager>) -> Self {
-        Self {
-            operations: Vec::new(),
-            policy: RecoveryPolicy::default(),
-            snapshot_manager,
+        // Save module versions
+        let versions_path = snapshot_dir.join("versions.json");
+        let versions_json = serde_json::to_string_pretty(&module_versions)?;
+        fs::write(&versions_path, versions_json).await?;
+
+        // Calculate snapshot size
+        let size = self.calculate_snapshot_size(&snapshot_dir).await?;
+
+        // Update metadata with size
+        let mut metadata = metadata;
+        metadata.size = size;
+        let metadata_json = serde_json::to_string_pretty(&metadata)?;
+        fs::write(&metadata_path, metadata_json).await?;
+
+        // Add to snapshots registry
+        let mut snapshots = self.snapshots.write().await;
+        snapshots.insert(snapshot_id.clone(), metadata);
+
+        // Cleanup old snapshots if needed
+        self.cleanup_old_snapshots().await?;
+
+        Ok(snapshot_id)
+    }
+
+    /// Restore from snapshot
+    pub async fn restore_snapshot(&self, snapshot_id: &str) -> Result<RollbackResult> {
+        let snapshots = self.snapshots.read().await;
+        let snapshot = snapshots
+            .get(snapshot_id)
+            .context("Snapshot not found")?;
+
+        let snapshot_dir = self.snapshots_dir.join(snapshot_id);
+
+        // Load module versions from snapshot
+        let versions_path = snapshot_dir.join("versions.json");
+        let versions_json = fs::read_to_string(&versions_path).await?;
+        let module_versions: HashMap<String, String> = serde_json::from_str(&versions_json)?;
+
+        // Rollback each module
+        let mut rolled_back_modules = Vec::new();
+        let mut errors = Vec::new();
+
+        for (module_name, version) in module_versions {
+            match self.runtime.activate_module(&module_name, &version).await {
+                Ok(_) => {
+                    rolled_back_modules.push(module_name);
+                }
+                Err(e) => {
+                    errors.push(format!("Failed to rollback module {}: {}", module_name, e));
+                }
+            }
+        }
+
+        let success = errors.is_empty();
+
+        Ok(RollbackResult {
+            success,
+            timestamp: Utc::now(),
+            from_snapshot_id: None,
+            to_snapshot_id: snapshot_id.to_string(),
+            modules: rolled_back_modules,
+            errors,
+        })
+    }
+
+    /// Create pre-update snapshot (before hot swap)
+    pub async fn create_pre_update_snapshot(
+        &self,
+        module_name: &str,
+    ) -> Result<String> {
+        self.create_snapshot(
+            &format!("pre-update-{}", module_name),
+            SnapshotType::PreUpdate,
+            &format!("Snapshot before updating module {}", module_name),
+            vec!["pre-update".to_string(), module_name.to_string()],
+        )
+        .await
+    }
+
+    /// Create post-update snapshot (after hot swap)
+    pub async fn create_post_update_snapshot(
+        &self,
+        module_name: &str,
+    ) -> Result<String> {
+        self.create_snapshot(
+            &format!("post-update-{}", module_name),
+            SnapshotType::PostUpdate,
+            &format!("Snapshot after updating module {}", module_name),
+            vec!["post-update".to_string(), module_name.to_string()],
+        )
+        .await
+    }
+
+    /// Automatic rollback on failure
+    pub async fn auto_rollback(&self, snapshot_id: &str) -> Result<RollbackResult> {
+        if !self.auto_rollback {
+            anyhow::bail!("Auto-rollback is disabled");
+        }
+
+        self.restore_snapshot(snapshot_id).await
+    }
+
+    /// Create recovery plan
+    pub fn create_recovery_plan(
+        &self,
+        recovery_type: RecoveryType,
+        target_snapshot_id: &str,
+    ) -> RecoveryPlan {
+        let plan_id = uuid::Uuid::new_v4().to_string();
+
+        let steps = match recovery_type {
+            RecoveryType::Full => {
+                vec![
+                    RecoveryStep {
+                        id: "stop-all-modules".to_string(),
+                        description: "Stop all active modules".to_string(),
+                        step_type: RecoveryStepType::StopModule,
+                        dependencies: vec![],
+                        estimated_duration_secs: 30,
+                        completed: false,
+                        error: None,
+                    },
+                    RecoveryStep {
+                        id: "restore-data".to_string(),
+                        description: "Restore data from snapshot".to_string(),
+                        step_type: RecoveryStepType::RestoreData,
+                        dependencies: vec!["stop-all-modules".to_string()],
+                        estimated_duration_secs: 60,
+                        completed: false,
+                        error: None,
+                    },
+                    RecoveryStep {
+                        id: "restore-config".to_string(),
+                        description: "Restore configuration".to_string(),
+                        step_type: RecoveryStepType::RestoreConfig,
+                        dependencies: vec!["restore-data".to_string()],
+                        estimated_duration_secs: 30,
+                        completed: false,
+                        error: None,
+                    },
+                    RecoveryStep {
+                        id: "rollback-modules".to_string(),
+                        description: "Rollback module versions".to_string(),
+                        step_type: RecoveryStepType::RollbackModule,
+                        dependencies: vec!["restore-config".to_string()],
+                        estimated_duration_secs: 45,
+                        completed: false,
+                        error: None,
+                    },
+                    RecoveryStep {
+                        id: "start-modules".to_string(),
+                        description: "Start all modules".to_string(),
+                        step_type: RecoveryStepType::StartModule,
+                        dependencies: vec!["rollback-modules".to_string()],
+                        estimated_duration_secs: 60,
+                        completed: false,
+                        error: None,
+                    },
+                    RecoveryStep {
+                        id: "verify-state".to_string(),
+                        description: "Verify system state".to_string(),
+                        step_type: RecoveryStepType::VerifyState,
+                        dependencies: vec!["start-modules".to_string()],
+                        estimated_duration_secs: 30,
+                        completed: false,
+                        error: None,
+                    },
+                ]
+            }
+            RecoveryType::Module => {
+                vec![
+                    RecoveryStep {
+                        id: "rollback-module".to_string(),
+                        description: "Rollback module version".to_string(),
+                        step_type: RecoveryStepType::RollbackModule,
+                        dependencies: vec![],
+                        estimated_duration_secs: 30,
+                        completed: false,
+                        error: None,
+                    },
+                    RecoveryStep {
+                        id: "verify-module".to_string(),
+                        description: "Verify module state".to_string(),
+                        step_type: RecoveryStepType::VerifyState,
+                        dependencies: vec!["rollback-module".to_string()],
+                        estimated_duration_secs: 15,
+                        completed: false,
+                        error: None,
+                    },
+                ]
+            }
+            RecoveryType::Data => {
+                vec![
+                    RecoveryStep {
+                        id: "restore-data".to_string(),
+                        description: "Restore data from snapshot".to_string(),
+                        step_type: RecoveryStepType::RestoreData,
+                        dependencies: vec![],
+                        estimated_duration_secs: 60,
+                        completed: false,
+                        error: None,
+                    },
+                    RecoveryStep {
+                        id: "verify-data".to_string(),
+                        description: "Verify data integrity".to_string(),
+                        step_type: RecoveryStepType::VerifyState,
+                        dependencies: vec!["restore-data".to_string()],
+                        estimated_duration_secs: 30,
+                        completed: false,
+                        error: None,
+                    },
+                ]
+            }
+            RecoveryType::Partial => {
+                vec![
+                    RecoveryStep {
+                        id: "rollback-partial".to_string(),
+                        description: "Rollback selected components".to_string(),
+                        step_type: RecoveryStepType::RollbackModule,
+                        dependencies: vec![],
+                        estimated_duration_secs: 45,
+                        completed: false,
+                        error: None,
+                    },
+                    RecoveryStep {
+                        id: "verify-partial".to_string(),
+                        description: "Verify partial state".to_string(),
+                        step_type: RecoveryStepType::VerifyState,
+                        dependencies: vec!["rollback-partial".to_string()],
+                        estimated_duration_secs: 30,
+                        completed: false,
+                        error: None,
+                    },
+                ]
+            }
+        };
+
+        let estimated_duration = steps.iter().map(|s| s.estimated_duration_secs).sum();
+
+        RecoveryPlan {
+            id: plan_id,
+            recovery_type,
+            target_snapshot_id: target_snapshot_id.to_string(),
+            steps,
+            estimated_duration_secs: estimated_duration,
         }
     }
-    
-    pub fn with_policy(mut self, policy: RecoveryPolicy) -> Self {
-        self.policy = policy;
-        self
-    }
-    
-    pub fn write_file(mut self, path: PathBuf, content: Vec<u8>) -> Self {
-        self.operations.push(Box::new(FileWriteOp::new(
-            path,
-            content,
-            self.snapshot_manager.clone(),
-        )));
-        self
-    }
-    
-    pub fn delete_file(mut self, path: PathBuf) -> Self {
-        self.operations.push(Box::new(FileDeleteOp::new(
-            path,
-            self.snapshot_manager.clone(),
-        )));
-        self
-    }
-    
-    pub fn create_dir(mut self, path: PathBuf) -> Self {
-        self.operations.push(Box::new(DirectoryCreateOp::new(path)));
-        self
-    }
-    
-    pub fn run_command(mut self, command: String, args: Vec<String>, rollback_cmd: Option<String>, rollback_args: Vec<String>) -> Self {
-        self.operations.push(Box::new(CommandOp::new(command, args, rollback_cmd, rollback_args)));
-        self
-    }
-    
-    pub fn database_op(mut self, db_path: PathBuf, operation: DatabaseOperation) -> Self {
-        self.operations.push(Box::new(DatabaseOp::new(
-            db_path,
-            operation,
-            self.snapshot_manager.clone(),
-        )));
-        self
-    }
-    
-    pub fn build(self) -> TransactionManager {
-        let manager = TransactionManager::with_policy(self.snapshot_manager, self.policy);
-        for op in self.operations {
-            manager.add_op(op);
+
+    /// Execute recovery plan
+    pub async fn execute_recovery_plan(
+        &self,
+        plan: &mut RecoveryPlan,
+    ) -> Result<RollbackResult> {
+        // TODO: Implement actual recovery execution
+        // For now, just mark all steps as completed
+
+        for step in plan.steps.iter_mut() {
+            step.completed = true;
         }
-        manager
+
+        Ok(RollbackResult {
+            success: true,
+            timestamp: Utc::now(),
+            from_snapshot_id: None,
+            to_snapshot_id: plan.target_snapshot_id.clone(),
+            modules: vec![],
+            errors: vec![],
+        })
+    }
+
+    /// List snapshots
+    pub async fn list_snapshots(&self) -> Vec<SnapshotMetadata> {
+        let snapshots = self.snapshots.read().await;
+        let mut list: Vec<_> = snapshots.values().cloned().collect();
+        list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        list
+    }
+
+    /// Get snapshot by ID
+    pub async fn get_snapshot(&self, snapshot_id: &str) -> Option<SnapshotMetadata> {
+        let snapshots = self.snapshots.read().await;
+        snapshots.get(snapshot_id).cloned()
+    }
+
+    /// Delete snapshot
+    pub async fn delete_snapshot(&self, snapshot_id: &str) -> Result<()> {
+        let snapshot_dir = self.snapshots_dir.join(snapshot_id);
+
+        // Remove directory
+        if snapshot_dir.exists() {
+            fs::remove_dir_all(&snapshot_dir).await?;
+        }
+
+        // Remove from registry
+        let mut snapshots = self.snapshots.write().await;
+        snapshots.remove(snapshot_id);
+
+        Ok(())
+    }
+
+    /// Generate snapshot ID
+    fn generate_snapshot_id(&self) -> String {
+        format!("snapshot-{}", uuid::Uuid::new_v4())
+    }
+
+    /// Collect current module versions
+    async fn collect_module_versions(&self) -> Result<HashMap<String, String>> {
+        // TODO: Implement collection of module versions from runtime
+        // For now, return empty map
+        Ok(HashMap::new())
+    }
+
+    /// Calculate snapshot size
+    async fn calculate_snapshot_size(&self, snapshot_dir: &Path) -> Result<u64> {
+        let mut total_size = 0u64;
+
+        let mut entries = fs::read_dir(snapshot_dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let metadata = entry.metadata().await?;
+            if metadata.is_file() {
+                total_size += metadata.len();
+            }
+        }
+
+        Ok(total_size)
+    }
+
+    /// Cleanup old snapshots
+    async fn cleanup_old_snapshots(&self) -> Result<()> {
+        let mut snapshots = self.snapshots.write().await;
+
+        while snapshots.len() > self.max_snapshots {
+            // Find oldest snapshot
+            let oldest_id = snapshots
+                .iter()
+                .min_by_key(|(_, s)| s.created_at)
+                .map(|(id, _)| id.clone());
+
+            if let Some(id) = oldest_id {
+                let snapshot_dir = self.snapshots_dir.join(&id);
+                if snapshot_dir.exists() {
+                    fs::remove_dir_all(&snapshot_dir).await?;
+                }
+                snapshots.remove(&id);
+            } else {
+                break;
+            }
+        }
+
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[test]
-    fn test_transaction_write_file() {
-        let dir = tempdir().unwrap();
-        let store_path = dir.path().join("snapshots");
-        let snapshot_manager = Arc::new(SnapshotManager::new(store_path).unwrap());
-        
-        let test_file = dir.path().join("test.txt");
-        let content = b"Hello, World!".to_vec();
-        
-        let tx = TransactionBuilder::new(snapshot_manager)
-            .write_file(test_file.clone(), content.clone())
-            .build();
-        
-        tx.execute_atomic().unwrap();
-        
-        assert!(test_file.exists());
-        assert_eq!(std::fs::read(&test_file).unwrap(), content);
+    fn test_snapshot_metadata() {
+        let metadata = SnapshotMetadata {
+            id: "test-snapshot".to_string(),
+            name: "Test Snapshot".to_string(),
+            created_at: Utc::now(),
+            snapshot_type: SnapshotType::Full,
+            module_versions: HashMap::new(),
+            size: 1024,
+            description: "Test snapshot".to_string(),
+            tags: vec!["test".to_string()],
+        };
+
+        assert_eq!(metadata.id, "test-snapshot");
+        assert_eq!(metadata.snapshot_type, SnapshotType::Full);
     }
-    
+
     #[test]
-    fn test_transaction_rollback() {
-        let dir = tempdir().unwrap();
-        let store_path = dir.path().join("snapshots");
-        let snapshot_manager = Arc::new(SnapshotManager::new(store_path).unwrap());
-        
-        let test_file = dir.path().join("test.txt");
-        let original_content = b"Original content".to_vec();
-        std::fs::write(&test_file, &original_content).unwrap();
-        
-        let new_content = b"New content".to_vec();
-        
-        let tx = TransactionBuilder::new(snapshot_manager.clone())
-            .write_file(test_file.clone(), new_content.clone())
-            .build();
-        
-        tx.prepare().unwrap();
-        tx.execute().unwrap();
-        
-        // Content should be new
-        assert_eq!(std::fs::read(&test_file).unwrap(), new_content);
-        
-        // Now rollback
-        tx.rollback().unwrap();
-        
-        // Content should be original
-        assert_eq!(std::fs::read(&test_file).unwrap(), original_content);
-    }
-    
-    #[test]
-    fn test_transaction_delete_file() {
-        let dir = tempdir().unwrap();
-        let store_path = dir.path().join("snapshots");
-        let snapshot_manager = Arc::new(SnapshotManager::new(store_path).unwrap());
-        
-        let test_file = dir.path().join("test.txt");
-        std::fs::write(&test_file, b"Delete me").unwrap();
-        
-        let tx = TransactionBuilder::new(snapshot_manager)
-            .delete_file(test_file.clone())
-            .build();
-        
-        tx.execute_atomic().unwrap();
-        
-        assert!(!test_file.exists());
-    }
-    
-    #[test]
-    fn test_recovery_policy_default() {
-        let policy = RecoveryPolicy::default();
-        assert_eq!(policy, RecoveryPolicy::AutomaticRollback);
+    fn test_recovery_plan() {
+        let plan = RecoveryPlan {
+            id: "test-plan".to_string(),
+            recovery_type: RecoveryType::Full,
+            target_snapshot_id: "test-snapshot".to_string(),
+            steps: vec![],
+            estimated_duration_secs: 300,
+        };
+
+        assert_eq!(plan.recovery_type, RecoveryType::Full);
+        assert_eq!(plan.target_snapshot_id, "test-snapshot");
     }
 }

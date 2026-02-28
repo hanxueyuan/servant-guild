@@ -23,12 +23,17 @@ use anyhow::{bail, Result};
 pub mod constitution;
 pub mod engine;
 pub mod proposal;
+pub mod update_proposal;
 pub mod vote;
 
 // Re-exports
 pub use constitution::{Constitution, DecisionType, GovernanceRule, QuorumType};
 pub use engine::ConsensusEngine;
 pub use proposal::{Proposal, ProposalStatus, VoteRecord, VoteCounts};
+pub use update_proposal::{
+    BehaviorChange, ImpactLevel, PolicyChange, RiskLevel, RollbackPlan,
+    TestResults, UpdateProposal, UpdateProposalBuilder, UpdateType,
+};
 pub use vote::Vote;
 
 /// Result of a consensus check

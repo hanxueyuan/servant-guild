@@ -198,6 +198,27 @@ libc = "0.2"
 version = "28.0"
 features = ["component-model", "async", "cache"]
 
+# Phase 3: Orchestration dependencies
+cargo-toml = { version = "0.20", optional = true }
+
+# Optional: Git integration (requires libgit2-dev)
+git2 = { version = "0.19", optional = true, default-features = false, features = ["https"] }
+
+# Optional: Wasm optimization (requires binaryen)
+binaryen = { version = "0.12", optional = true }
+
+# Embedded KV store for rollback points
+sled = { version = "0.34", optional = true }
+
+[features]
+default = ["runtime-wasm"]
+runtime-wasm = ["wasmtime"]
+github-integration = ["dep:git2"]
+wasm-optimization = ["dep:binaryen"]
+rollback-recovery = ["dep:sled"]
+phase3-orchestration = ["github-integration", "rollback-recovery"]
+full = ["runtime-wasm", "phase3-orchestration", "wasm-optimization"]
+
 [dependencies.wasmtime-wasi]
 version = "28.0"
 

@@ -1,5 +1,12 @@
+pub mod build;
 pub mod docker;
+pub mod error_analyzer;
+pub mod evolution_workflow;
+pub mod hot_swap;
 pub mod native;
+pub mod rollback;
+pub mod sandbox;
+pub mod state_migration;
 pub mod traits;
 pub mod wasm;
 
@@ -10,8 +17,14 @@ pub mod state;
 #[cfg(feature = "runtime-wasm")]
 pub mod bridges;
 
+pub use build::{BuildAutomation, BuildAutomationImpl, BuildConfig, BuildResult};
 pub use docker::DockerRuntime;
+pub use error_analyzer::{AutoFixer, AutoFixResult, BuildContext, BuildError, ErrorAnalyzer, FixSuggestion};
+pub use evolution::{EvolutionConfig, EvolutionEngine, EvolutionPlan, EvolutionResult, EvolutionStatus, EvolutionTrigger, EvolutionType};
+pub use hot_swap::{HotSwap, HotSwapManager, ModuleMetadata, ModuleVersion, SwapStrategy, SwapResult};
 pub use native::NativeRuntime;
+pub use rollback::{BackupConfig, RecoveryPlan, RecoveryStep, RecoveryStepType, RollbackManager, RollbackPoint, RollbackPointType, RollbackResult};
+pub use sandbox::{BuildSandbox, SandboxConfig, SandboxManager, SandboxResult};
 pub use traits::RuntimeAdapter;
 pub use wasm::{WasmCapabilities, WasmRuntime};
 
