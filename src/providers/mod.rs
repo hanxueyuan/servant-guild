@@ -20,6 +20,7 @@ pub mod anthropic;
 pub mod bedrock;
 pub mod compatible;
 pub mod copilot;
+pub mod doubao;
 pub mod gemini;
 pub mod mock;
 pub mod ollama;
@@ -1078,12 +1079,17 @@ fn create_provider_with_url_and_options(
         name if is_qianfan_alias(name) => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Qianfan", "https://aip.baidubce.com", key, AuthStyle::Bearer,
         ))),
-        name if is_doubao_alias(name) => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Doubao",
-            "https://ark.cn-beijing.volces.com/api/v3",
-            key,
-            AuthStyle::Bearer,
-        ))),
+        name if is_doubao_alias(name) => {
+            let base_url = api_url
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "https://ark.cn-beijing.volces.com/api/v3".to_string());
+            Ok(Box::new(doubao::DoubaoProvider::new(
+                base_url,
+                key.map(ToString::to_string),
+            )))
+        }
         name if qwen_base_url(name).is_some() => Ok(Box::new(OpenAiCompatibleProvider::new_with_vision(
             "Qwen",
             qwen_base_url(name).expect("checked in guard"),
