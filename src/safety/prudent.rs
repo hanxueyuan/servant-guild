@@ -39,8 +39,12 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::consensus::{ConsensusEngine, ConsensusResult, DecisionType, Vote};
-use crate::safety::{AuditLog, RollbackManager, Snapshot};
+use crate::safety::{AuditLogger, TransactionManager, Snapshot};
 use crate::guild::Guild;
+
+// Type aliases for consistency
+type AuditLog = AuditLogger;
+type RollbackManager = TransactionManager;
 
 /// Prudent Agency Manager
 pub struct PrudentAgency {
@@ -257,15 +261,10 @@ impl PrudentAgency {
         };
         
         // Log the initiation
-        self.audit_log.log(
-            crate::safety::AuditEventType::Custom("action_initiated".to_string()),
-            serde_json::json!({
-                "action_id": &id,
-                "action_type": &action.action_type,
-                "risk_level": risk_level,
-                "initiator": &action.initiator,
-            }),
-        )?;
+        use crate::safety::audit::AuditEvent;
+        let event = AuditEvent::new(crate::safety::AuditEventType::Custom("action_initiated".to_string()))
+            .with_result(true, None, 0, Some(format!("{:?}", action)));
+        self.audit_log.log(&event)?;
         
         // Determine if approval is needed
         let needs_approval = risk_level >= self.config.approval_threshold;
@@ -351,20 +350,19 @@ impl PrudentAgency {
         
         // Create snapshot for risky operations
         if action.risk_level >= 5 || self.config.always_snapshot {
-            let snapshot_id = self.rollback_manager.create_snapshot(&action.description)?;
-            action.snapshot_id = Some(snapshot_id);
+            use std::path::Path;
+            let snapshot = self.rollback_manager.create_snapshot(Path::new(&action.description))?;
+            // Store snapshot ID instead of full snapshot
+            action.snapshot_id = Some(snapshot.id.clone());
         }
         
         action.status = ActionStatus::Executing;
         
         // Log execution start
-        self.audit_log.log(
-            crate::safety::AuditEventType::Custom("action_executing".to_string()),
-            serde_json::json!({
-                "action_id": action_id,
-                "operation": &action.operation,
-            }),
-        )?;
+        use crate::safety::audit::AuditEvent;
+        let event = AuditEvent::new(crate::safety::AuditEventType::Custom("action_executing".to_string()))
+            .with_result(true, None, 0, Some(format!("{:?}", action)));
+        self.audit_log.log(&event)?;
         
         // Execute the operation
         let started_at = Utc::now();
@@ -377,13 +375,10 @@ impl PrudentAgency {
                 action.status = ActionStatus::Completed;
                 
                 // Log success
-                self.audit_log.log(
-                    crate::safety::AuditEventType::Custom("action_completed".to_string()),
-                    serde_json::json!({
-                        "action_id": action_id,
-                        "duration_ms": (completed_at - started_at).num_milliseconds(),
-                    }),
-                )?;
+                use crate::safety::audit::AuditEvent;
+                let event = AuditEvent::new(crate::safety::AuditEventType::Custom("action_completed".to_string()))
+                    .with_result(true, None, (completed_at - started_at).num_milliseconds().max(0) as u64, None);
+                self.audit_log.log(&event)?;
                 
                 // Move to history
                 let record = ActionRecord {
@@ -410,26 +405,19 @@ impl PrudentAgency {
                 action.status = ActionStatus::Failed;
                 
                 // Log failure
-                self.audit_log.log(
-                    crate::safety::AuditEventType::Custom("action_failed".to_string()),
-                    serde_json::json!({
-                        "action_id": action_id,
-                        "error": &error,
-                    }),
-                )?;
+                use crate::safety::audit::AuditEvent;
+                let event = AuditEvent::new(crate::safety::AuditEventType::Custom("action_failed".to_string()))
+                    .with_result(false, None, 0, Some(error.clone()));
+                self.audit_log.log(&event)?;
                 
                 // Attempt rollback if we have a snapshot
-                if let Some(snapshot_id) = &action.snapshot_id {
-                    if self.rollback_manager.rollback(snapshot_id).is_ok() {
+                if let Some(_snapshot_id) = &action.snapshot_id {
+                    if self.rollback_manager.rollback().is_ok() {
                         action.status = ActionStatus::RolledBack;
                         
-                        self.audit_log.log(
-                            crate::safety::AuditEventType::Custom("action_rolled_back".to_string()),
-                            serde_json::json!({
-                                "action_id": action_id,
-                                "snapshot_id": snapshot_id,
-                            }),
-                        )?;
+                        let event = AuditEvent::new(crate::safety::AuditEventType::Custom("action_rolled_back".to_string()))
+                            .with_result(true, None, 0, None);
+                        self.audit_log.log(&event)?;
                     }
                 }
                 
@@ -475,16 +463,13 @@ impl PrudentAgency {
         drop(history);
         let pending = self.pending_actions.read();
         if let Some(action) = pending.get(action_id) {
-            if let Some(snapshot_id) = &action.snapshot_id {
-                self.rollback_manager.rollback(snapshot_id)?;
+            if let Some(_snapshot_id) = &action.snapshot_id {
+                self.rollback_manager.rollback()?;
                 
-                self.audit_log.log(
-                    crate::safety::AuditEventType::Custom("manual_rollback".to_string()),
-                    serde_json::json!({
-                        "action_id": action_id,
-                        "snapshot_id": snapshot_id,
-                    }),
-                )?;
+                use crate::safety::audit::AuditEvent;
+                let event = AuditEvent::new(crate::safety::AuditEventType::Custom("manual_rollback".to_string()))
+                    .with_result(true, None, 0, None);
+                self.audit_log.log(&event)?;
             }
         }
         

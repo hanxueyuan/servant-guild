@@ -15,10 +15,10 @@ pub mod policy;
 pub mod prudent;
 
 // Re-exports
-pub use audit::{AuditLog, AuditEntry, AuditEventType};
-pub use rollback::{RollbackManager, RollbackError, RollbackResult};
-pub use snapshot::{Snapshot, SnapshotError, SnapshotResult};
-pub use policy::{SecurityPolicy, PolicyRule};
+pub use audit::{AuditEventType, AuditLogger};
+pub use rollback::{TransactionManager, RecoveryPolicy, TransactionStatus};
+pub use snapshot::{SnapshotManager, Snapshot, SnapshotType};
+pub use policy::{SafetyPolicy as SecurityPolicy, RiskLevel as PolicyRule};
 pub use prudent::{PrudentAgency, PrudentConfig, PendingAction, ActionRecord, ActionType, ActionStatus, ApprovalStatus, PrudentError};
 
 use serde::{Deserialize, Serialize};

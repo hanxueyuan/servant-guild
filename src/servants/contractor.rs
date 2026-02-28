@@ -119,6 +119,67 @@ pub struct ConfigEntry {
     pub version: u32,
 }
 
+/// Lifecycle event for a resource
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifecycleEvent {
+    /// Event ID
+    pub id: String,
+    /// Resource ID
+    pub resource_id: String,
+    /// Event type
+    pub event_type: LifecycleEventType,
+    /// When occurred
+    pub timestamp: DateTime<Utc>,
+    /// Who triggered it
+    pub triggered_by: String,
+    /// Additional details
+    pub details: Option<serde_json::Value>,
+}
+
+/// Types of lifecycle events
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum LifecycleEventType {
+    /// Resource created
+    Created,
+    /// Resource started
+    Started,
+    /// Resource stopped
+    Stopped,
+    /// Resource destroyed
+    Destroyed,
+    /// Resource updated
+    Updated,
+    /// Resource scaled
+    Scaled,
+    /// Resource failed
+    Failed,
+    /// Resource recovered
+    Recovered,
+}
+
+/// Resource usage statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceUsage {
+    /// Resource ID
+    pub resource_id: String,
+    /// Total requests handled
+    pub total_requests: u64,
+    /// Failed requests
+    pub failed_requests: u64,
+    /// Average response time (ms)
+    pub avg_response_time: f64,
+    /// Current connections
+    pub current_connections: u32,
+    /// Maximum connections
+    pub max_connections: u32,
+    /// CPU usage (0-100)
+    pub cpu_usage: f64,
+    /// Memory usage in MB
+    pub memory_usage: f64,
+    /// Last updated
+    pub last_updated: DateTime<Utc>,
+}
+
 /// The Contractor servant
 pub struct Contractor {
     /// Unique ID
@@ -133,6 +194,10 @@ pub struct Contractor {
     config_store: RwLock<HashMap<String, ConfigEntry>>,
     /// Health check interval in seconds
     health_check_interval: u64,
+    /// Lifecycle event history
+    lifecycle_events: RwLock<Vec<LifecycleEvent>>,
+    /// Resource usage statistics
+    usage_stats: RwLock<HashMap<String, ResourceUsage>>,
 }
 
 impl Contractor {
@@ -145,6 +210,8 @@ impl Contractor {
             resources: RwLock::new(HashMap::new()),
             config_store: RwLock::new(HashMap::new()),
             health_check_interval: 60,
+            lifecycle_events: RwLock::new(Vec::new()),
+            usage_stats: RwLock::new(HashMap::new()),
         }
     }
     
@@ -154,13 +221,182 @@ impl Contractor {
         self
     }
     
-    /// Register a resource
-    pub fn register_resource(&self, resource: Resource) {
+    /// Register a resource with lifecycle tracking
+    pub fn register_resource(&self, mut resource: Resource, triggered_by: String) {
+        resource.id = uuid::Uuid::new_v4().to_string();
+        
+        // Log creation event
+        self.log_lifecycle_event(LifecycleEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            resource_id: resource.id.clone(),
+            event_type: LifecycleEventType::Created,
+            timestamp: Utc::now(),
+            triggered_by,
+            details: Some(serde_json::json!({
+                "name": resource.name,
+                "type": format!("{:?}", resource.resource_type),
+            })),
+        });
+        
+        // Initialize usage stats
+        self.usage_stats.write().insert(
+            resource.id.clone(),
+            ResourceUsage {
+                resource_id: resource.id.clone(),
+                total_requests: 0,
+                failed_requests: 0,
+                avg_response_time: 0.0,
+                current_connections: 0,
+                max_connections: 100,
+                cpu_usage: 0.0,
+                memory_usage: 0.0,
+                last_updated: Utc::now(),
+            },
+        );
+        
         self.resources.write().insert(resource.id.clone(), resource);
     }
     
-    /// Unregister a resource
-    pub fn unregister_resource(&self, resource_id: &str) {
+    /// Unregister a resource with lifecycle tracking
+    pub fn unregister_resource(&self, resource_id: &str, triggered_by: String) -> Result<(), ServantError> {
+        // Log destruction event
+        self.log_lifecycle_event(LifecycleEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            resource_id: resource_id.to_string(),
+            event_type: LifecycleEventType::Destroyed,
+            timestamp: Utc::now(),
+            triggered_by,
+            details: None,
+        });
+        
+        // Remove resource
+        if self.resources.write().remove(resource_id).is_some() {
+            // Remove usage stats
+            self.usage_stats.write().remove(resource_id);
+            Ok(())
+        } else {
+            Err(ServantError::InvalidTask(format!("Resource {} not found", resource_id)))
+        }
+    }
+    
+    /// Start a resource
+    pub async fn start_resource(&self, resource_id: &str, triggered_by: String) -> Result<(), ServantError> {
+        let mut resources = self.resources.write();
+        let resource = resources
+            .get_mut(resource_id)
+            .ok_or_else(|| ServantError::InvalidTask(format!("Resource {} not found", resource_id)))?;
+        
+        // Update status
+        let old_status = resource.status.clone();
+        resource.status = ResourceStatus::Starting;
+        
+        // Log start event
+        self.log_lifecycle_event(LifecycleEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            resource_id: resource_id.to_string(),
+            event_type: LifecycleEventType::Started,
+            timestamp: Utc::now(),
+            triggered_by,
+            details: Some(serde_json::json!({
+                "previous_status": format!("{:?}", old_status),
+            })),
+        });
+        
+        // TODO: Implement actual resource start
+        // For now, mark as healthy
+        resource.status = ResourceStatus::Healthy;
+        
+        Ok(())
+    }
+    
+    /// Stop a resource
+    pub async fn stop_resource(&self, resource_id: &str, triggered_by: String) -> Result<(), ServantError> {
+        let mut resources = self.resources.write();
+        let resource = resources
+            .get_mut(resource_id)
+            .ok_or_else(|| ServantError::InvalidTask(format!("Resource {} not found", resource_id)))?;
+        
+        // Update status
+        let old_status = resource.status.clone();
+        resource.status = ResourceStatus::Stopped;
+        
+        // Log stop event
+        self.log_lifecycle_event(LifecycleEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            resource_id: resource_id.to_string(),
+            event_type: LifecycleEventType::Stopped,
+            timestamp: Utc::now(),
+            triggered_by,
+            details: Some(serde_json::json!({
+                "previous_status": format!("{:?}", old_status),
+            })),
+        });
+        
+        // TODO: Implement actual resource stop
+        
+        Ok(())
+    }
+    
+    /// Log a lifecycle event
+    fn log_lifecycle_event(&self, event: LifecycleEvent) {
+        self.lifecycle_events.write().push(event);
+    }
+    
+    /// Get lifecycle events for a resource
+    pub fn get_lifecycle_events(&self, resource_id: &str) -> Vec<LifecycleEvent> {
+        self.lifecycle_events
+            .read()
+            .iter()
+            .filter(|e| e.resource_id == resource_id)
+            .cloned()
+            .collect()
+    }
+    
+    /// Get all lifecycle events
+    pub fn get_all_lifecycle_events(&self) -> Vec<LifecycleEvent> {
+        self.lifecycle_events.read().clone()
+    }
+    
+    /// Update resource usage statistics
+    pub fn update_usage_stats(&self, resource_id: &str, stats: ResourceUsage) -> Result<(), ServantError> {
+        let mut usage_stats = self.usage_stats.write();
+        
+        if !usage_stats.contains_key(resource_id) {
+            return Err(ServantError::InvalidTask(format!("Resource {} not found", resource_id)));
+        }
+        
+        usage_stats.insert(resource_id.to_string(), stats);
+        Ok(())
+    }
+    
+    /// Get usage statistics for a resource
+    pub fn get_usage_stats(&self, resource_id: &str) -> Option<ResourceUsage> {
+        self.usage_stats.read().get(resource_id).cloned()
+    }
+    
+    /// Get all usage statistics
+    pub fn get_all_usage_stats(&self) -> Vec<ResourceUsage> {
+        self.usage_stats.read().values().cloned().collect()
+    }
+    
+    /// Log a resource request
+    pub fn log_request(&self, resource_id: &str, success: bool, response_time_ms: f64) {
+        if let Some(stats) = self.usage_stats.write().get_mut(resource_id) {
+            stats.total_requests += 1;
+            if !success {
+                stats.failed_requests += 1;
+            }
+            
+            // Update average response time
+            let total_time = stats.avg_response_time * (stats.total_requests - 1) as f64;
+            stats.avg_response_time = (total_time + response_time_ms) / stats.total_requests as f64;
+            
+            stats.last_updated = Utc::now();
+        }
+    }
+    
+    /// Unregister a resource (deprecated, use unregister_resource with triggered_by)
+    pub fn unregister_resource_deprecated(&self, resource_id: &str) {
         self.resources.write().remove(resource_id);
     }
     
@@ -223,7 +459,7 @@ impl Contractor {
         results
     }
     
-    /// Set a configuration value
+    /// Set a configuration value with version tracking
     pub fn set_config(
         &self,
         key: String,
@@ -233,32 +469,62 @@ impl Contractor {
     ) -> Result<(), ServantError> {
         // If this is a secret, it requires approval
         if is_secret {
-            // TODO: Check with consensus for approval
+            if let Some(consensus) = &self.consensus {
+                if consensus.requires_vote(&DecisionType::SystemUpdate) {
+                    return Err(ServantError::Internal("Secret configuration requires approval".to_string()));
+                }
+            }
         }
         
         let mut store = self.config_store.write();
         
-        let version = store
-            .get(&key)
-            .map(|e| e.version + 1)
-            .unwrap_or(1);
+        // Get old version
+        let old_version = store.get(&key).map(|e| e.version).unwrap_or(0);
+        let new_version = old_version + 1;
         
         let entry = ConfigEntry {
             key: key.clone(),
-            value,
+            value: if is_secret {
+                // Mask secret values in logs (but store them)
+                serde_json::json!("*****HIDDEN*****")
+            } else {
+                value.clone()
+            },
             is_secret,
             updated_at: Utc::now(),
             updated_by,
-            version,
+            version: new_version,
         };
         
-        store.insert(key, entry);
+        // Store the actual value (even if secret)
+        let mut actual_entry = entry.clone();
+        if is_secret {
+            actual_entry.value = value;
+        }
+        
+        store.insert(key, actual_entry);
+        
+        println!("[Contractor] Config updated: {} (v{}, by {})", key, new_version, updated_by);
         
         Ok(())
     }
     
-    /// Get a configuration value
+    /// Get a configuration value (without exposing secrets unless authorized)
     pub fn get_config(&self, key: &str) -> Option<ConfigEntry> {
+        let entry = self.config_store.read().get(key).cloned()?;
+        
+        // Mask secrets in returned value
+        if entry.is_secret {
+            let mut masked = entry.clone();
+            masked.value = serde_json::json!("*****HIDDEN*****");
+            Some(masked)
+        } else {
+            Some(entry)
+        }
+    }
+    
+    /// Get a configuration value with secret revealed (use with caution)
+    pub fn get_config_with_secret(&self, key: &str) -> Option<ConfigEntry> {
         self.config_store.read().get(key).cloned()
     }
     
@@ -267,10 +533,36 @@ impl Contractor {
         self.config_store.read().keys().cloned().collect()
     }
     
+    /// Get configuration metadata (keys, versions, update times, but not values)
+    pub fn get_config_metadata(&self) -> Vec<serde_json::Value> {
+        self.config_store
+            .read()
+            .values()
+            .map(|e| serde_json::json!({
+                "key": e.key,
+                "is_secret": e.is_secret,
+                "version": e.version,
+                "updated_at": e.updated_at,
+                "updated_by": e.updated_by,
+            }))
+            .collect()
+    }
+    
     /// Delete a configuration value
     pub fn delete_config(&self, key: &str) -> Result<(), ServantError> {
-        self.config_store.write().remove(key);
-        Ok(())
+        if self.config_store.write().remove(key).is_some() {
+            println!("[Contractor] Config deleted: {}", key);
+            Ok(())
+        } else {
+            Err(ServantError::InvalidTask(format!("Config key {} not found", key)))
+        }
+    }
+    
+    /// Rollback a configuration to a previous version
+    pub fn rollback_config(&self, key: &str, to_version: u32) -> Result<(), ServantError> {
+        // TODO: Implement config version history and rollback
+        // For now, this is a placeholder
+        Err(ServantError::Internal("Config rollback not implemented yet".to_string()))
     }
     
     /// Scale a resource (if supported)
@@ -300,7 +592,7 @@ impl Contractor {
     /// Deploy a new resource or update an existing one
     pub async fn deploy(
         &self,
-        resource: Resource,
+        mut resource: Resource,
     ) -> Result<String, ServantError> {
         // This requires consensus
         if let Some(consensus) = &self.consensus {
@@ -411,6 +703,8 @@ impl Servant for Contractor {
             "health_check".to_string(),
             "deployment".to_string(),
             "scaling".to_string(),
+            "lifecycle_management".to_string(),
+            "usage_tracking".to_string(),
         ]
     }
 }

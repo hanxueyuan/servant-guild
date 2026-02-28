@@ -164,6 +164,168 @@ impl Worker {
         self.tools.write().insert(tool.name.clone(), tool);
     }
     
+    /// Execute a tool using ReAct pattern (Reason + Act)
+    /// This implements a reasoning loop that:
+    /// 1. Thinks about the task
+    /// 2. Acts by calling a tool
+    /// 3. Observes the result
+    /// 4. Decides next step
+    pub async fn react_execute(
+        &self,
+        task: &str,
+        max_iterations: usize,
+    ) -> Result<ToolResult, ServantError> {
+        println!("[Worker ReAct] Starting task: {}", task);
+        
+        let mut observations = Vec::new();
+        let mut iteration = 0;
+        
+        loop {
+            iteration += 1;
+            
+            if iteration > max_iterations {
+                return Ok(ToolResult {
+                    tool_name: "react_loop".to_string(),
+                    success: false,
+                    output: serde_json::json!({
+                        "error": "Max iterations exceeded",
+                        "observations": observations,
+                    }),
+                    error: Some("Max iterations exceeded".to_string()),
+                    duration_ms: 0,
+                });
+            }
+            
+            // Phase 1: Think - Analyze what to do next
+            let thought = self.think_about_step(task, &observations, iteration)?;
+            println!("[Worker ReAct] Iteration {} - Thought: {}", iteration, thought);
+            
+            // Phase 2: Act - Parse thought and execute tool
+            if thought.contains("DONE") || thought.contains("FINISHED") {
+                // Task is complete
+                println!("[Worker ReAct] Task completed successfully");
+                return Ok(ToolResult {
+                    tool_name: "react_loop".to_string(),
+                    success: true,
+                    output: serde_json::json!({
+                        "message": "Task completed",
+                        "steps": iteration,
+                        "observations": observations,
+                    }),
+                    error: None,
+                    duration_ms: 0,
+                });
+            }
+            
+            // Extract tool call from thought
+            let (tool_name, params) = self.extract_tool_call(&thought)?;
+            
+            // Phase 3: Observe - Execute tool and capture result
+            let result = self.execute_tool(&tool_name, params.clone()).await?;
+            
+            let observation = serde_json::json!({
+                "step": iteration,
+                "tool": tool_name,
+                "params": params,
+                "result": result,
+            });
+            
+            observations.push(observation.clone());
+            println!("[Worker ReAct] Observation: {}", serde_json::to_string(&observation).unwrap_or_default());
+            
+            if !result.success {
+                // Tool failed, decide whether to retry or abort
+                if iteration < max_iterations && !thought.contains("CRITICAL") {
+                    println!("[Worker ReAct] Tool failed, will retry...");
+                    continue;
+                } else {
+                    return Ok(ToolResult {
+                        tool_name: "react_loop".to_string(),
+                        success: false,
+                        output: serde_json::json!({
+                            "error": "Tool execution failed",
+                            "steps": iteration,
+                            "observations": observations,
+                        }),
+                        error: result.error,
+                        duration_ms: 0,
+                    });
+                }
+            }
+        }
+    }
+    
+    /// Think about the next step in the ReAct loop
+    fn think_about_step(
+        &self,
+        task: &str,
+        observations: &[serde_json::Value],
+        iteration: usize,
+    ) -> Result<String, ServantError> {
+        // In a real implementation, this would use LLM to reason
+        // For now, use a simple rule-based approach
+        
+        if observations.is_empty() {
+            // First step - analyze task and decide initial action
+            if task.contains("read") || task.contains("get") || task.contains("file") {
+                return Ok("I should read the file first. Action: file_read".to_string());
+            } else if task.contains("write") || task.contains("create") || task.contains("save") {
+                return Ok("I should write to the file. Action: file_write".to_string());
+            } else if task.contains("search") || task.contains("find") {
+                return Ok("I should search for content. Action: content_search".to_string());
+            } else {
+                return Ok("I need to analyze the task further. Action: file_read".to_string());
+            }
+        }
+        
+        // Check last observation
+        if let Some(last_obs) = observations.last() {
+            if let Some(result) = last_obs.get("result") {
+                if result["success"].as_bool().unwrap_or(false) {
+                    // Last action succeeded
+                    if iteration >= 3 {
+                        // After 3 successful steps, consider task done
+                        return Ok("Task appears complete. DONE".to_string());
+                    }
+                    return Ok("Previous step succeeded, continuing with next step. Action: file_read".to_string());
+                } else {
+                    // Last action failed
+                    return Ok("Previous step failed, trying alternative approach. Action: file_read".to_string());
+                }
+            }
+        }
+        
+        Ok("Continuing task execution. Action: file_read".to_string())
+    }
+    
+    /// Extract tool name and parameters from thought
+    fn extract_tool_call(&thought: &str) -> Result<(String, serde_json::Value), ServantError> {
+        // Parse thought to extract tool call
+        // Format: "Action: tool_name" or "Action: tool_name(params)"
+        
+        if let Some(action_pos) = thought.find("Action:") {
+            let action_part = &thought[action_pos + 6..];
+            let action_part = action_part.trim();
+            
+            if let Some(paren_start) = action_part.find('(') {
+                let tool_name = &action_part[..paren_start].trim();
+                // For simplicity, return empty params
+                // In a real implementation, this would parse the parameters
+                return Ok((tool_name.to_string(), serde_json::json!({})));
+            } else {
+                return Ok((action_part.to_string(), serde_json::json!({})));
+            }
+        }
+        
+        // Default action
+        Ok(("file_read".to_string(), serde_json::json!({})))
+    }
+    
+    /// Register a custom tool
+    pub fn register_tool(&self, tool: Tool) {
+        self.tools.write().insert(tool.name.clone(), tool);
+    }
+    
     /// Get available tools
     pub fn get_tools(&self) -> Vec<Tool> {
         self.tools.read().values().cloned().collect()

@@ -26,9 +26,9 @@ pub mod proposal;
 pub mod vote;
 
 // Re-exports
-pub use constitution::{Constitution, DecisionType, GovernanceRule};
+pub use constitution::{Constitution, DecisionType, GovernanceRule, QuorumType};
 pub use engine::ConsensusEngine;
-pub use proposal::{Proposal, ProposalStatus, VoteRecord};
+pub use proposal::{Proposal, ProposalStatus, VoteRecord, VoteCounts};
 pub use vote::Vote;
 
 /// Result of a consensus check

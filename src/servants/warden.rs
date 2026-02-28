@@ -18,7 +18,11 @@ use super::{
     Servant, ServantId, ServantRole, ServantStatus, ServantTask, ServantResult, ServantError,
 };
 use crate::consensus::{ConsensusEngine, Vote};
-use crate::safety::{AuditLog, Snapshot, RollbackManager};
+use crate::safety::{AuditLogger, Snapshot, TransactionManager};
+
+// Type aliases for consistency
+type AuditLog = AuditLogger;
+type RollbackManager = TransactionManager;
 
 /// Security policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,18 +337,19 @@ impl Warden {
     /// Create a safety snapshot before a risky operation
     pub async fn create_snapshot(&self, operation_id: &str) -> Result<String, ServantError> {
         if let Some(manager) = &self.rollback_manager {
-            let snapshot_id = manager.create_snapshot(operation_id)
+            use std::path::Path;
+            let snapshot = manager.create_snapshot(Path::new(operation_id))
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
-            Ok(snapshot_id)
+            Ok(snapshot.id.clone())
         } else {
             Err(ServantError::Internal("Rollback manager not configured".to_string()))
         }
     }
     
     /// Rollback to a snapshot
-    pub async fn rollback(&self, snapshot_id: &str) -> Result<(), ServantError> {
+    pub async fn rollback(&self, _snapshot_id: &str) -> Result<(), ServantError> {
         if let Some(manager) = &self.rollback_manager {
-            manager.rollback(snapshot_id)
+            manager.rollback()
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
             Ok(())
         } else {
@@ -359,7 +364,10 @@ impl Warden {
         details: serde_json::Value,
     ) -> Result<(), ServantError> {
         if let Some(audit_log) = &self.audit_log {
-            audit_log.log(crate::safety::AuditEventType::Custom(operation.to_string()), details)
+            use crate::safety::audit::AuditEvent;
+            let event = AuditEvent::new(crate::safety::AuditEventType::Custom(operation.to_string()))
+                .with_result(true, None, 0, Some(details.to_string()));
+            audit_log.log(&event)
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
         }
         Ok(())

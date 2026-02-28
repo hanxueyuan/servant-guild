@@ -57,7 +57,7 @@ impl std::fmt::Display for ServantId {
 }
 
 /// Role of a servant in the guild
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ServantRole {
     /// Task distribution and workflow orchestration
     Coordinator,

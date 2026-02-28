@@ -6,6 +6,7 @@
 //! - Building consensus on decisions
 //! - Maintaining the guild's "voice" (LLM interactions)
 //! - Coordinating discussions
+//! - Broadcasting notifications through multiple channels
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,6 +22,45 @@ use crate::consensus::{
     ConsensusEngine, ConsensusResult, DecisionType, Proposal, ProposalStatus, Vote, VoteTally,
 };
 
+/// Notification channel for distributing messages
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NotificationChannel {
+    /// Console output
+    Console,
+    /// System logs
+    Logs,
+    /// External API/Webhook
+    External(String),
+    /// Servant direct message
+    Servant(String),
+    /// All channels
+    All,
+}
+
+/// Notification configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationConfig {
+    /// Enabled channels
+    pub channels: Vec<NotificationChannel>,
+    /// Whether to log all notifications
+    pub log_notifications: bool,
+    /// Whether to send alerts for important messages
+    pub send_alerts: bool,
+}
+
+impl Default for NotificationConfig {
+    fn default() -> Self {
+        Self {
+            channels: vec![
+                NotificationChannel::Console,
+                NotificationChannel::Logs,
+            ],
+            log_notifications: true,
+            send_alerts: true,
+        }
+    }
+}
+
 /// A message in the guild communication
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuildMessage {
@@ -34,8 +74,12 @@ pub struct GuildMessage {
     pub message_type: MessageType,
     /// When sent
     pub timestamp: DateTime<Utc>,
-    /// Whether important (should be logged)
+    /// Whether important (should be logged and alerted)
     pub important: bool,
+    /// Notification channels to use
+    pub channels: Vec<NotificationChannel>,
+    /// Recipients (None means broadcast to all)
+    pub recipients: Option<Vec<String>>,
 }
 
 /// Types of guild messages
@@ -53,6 +97,25 @@ pub enum MessageType {
     Alert,
     /// System message
     System,
+    /// Task assignment
+    TaskAssignment,
+    /// Task completion
+    TaskCompletion,
+    /// Security event
+    SecurityEvent,
+}
+
+/// Event subscription
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventSubscription {
+    /// Subscription ID
+    pub id: String,
+    /// Servant subscribing
+    pub servant_id: String,
+    /// Event types to subscribe to
+    pub event_types: Vec<MessageType>,
+    /// Active status
+    pub active: bool,
 }
 
 /// The Speaker servant
@@ -67,6 +130,12 @@ pub struct Speaker {
     messages: RwLock<Vec<GuildMessage>>,
     /// Active discussions
     discussions: RwLock<HashMap<String, Discussion>>,
+    /// Notification configuration
+    notification_config: RwLock<NotificationConfig>,
+    /// Event subscriptions
+    subscriptions: RwLock<HashMap<String, EventSubscription>>,
+    /// External webhook URLs
+    webhook_urls: RwLock<Vec<String>>,
 }
 
 /// A discussion thread
@@ -99,6 +168,76 @@ impl Speaker {
             consensus,
             messages: RwLock::new(Vec::new()),
             discussions: RwLock::new(HashMap::new()),
+            notification_config: RwLock::new(NotificationConfig::default()),
+            subscriptions: RwLock::new(HashMap::new()),
+            webhook_urls: RwLock::new(Vec::new()),
+        }
+    }
+    
+    /// Create a new Speaker with custom notification config
+    pub fn with_config(consensus: Arc<ConsensusEngine>, config: NotificationConfig) -> Self {
+        Self {
+            id: ServantId::new(ServantRole::Speaker.default_id()),
+            status: RwLock::new(ServantStatus::Starting),
+            consensus,
+            messages: RwLock::new(Vec::new()),
+            discussions: RwLock::new(HashMap::new()),
+            notification_config: RwLock::new(config),
+            subscriptions: RwLock::new(HashMap::new()),
+            webhook_urls: RwLock::new(Vec::new()),
+        }
+    }
+    
+    /// Set notification configuration
+    pub fn set_notification_config(&self, config: NotificationConfig) {
+        *self.notification_config.write() = config;
+    }
+    
+    /// Get notification configuration
+    pub fn get_notification_config(&self) -> NotificationConfig {
+        self.notification_config.read().clone()
+    }
+    
+    /// Add a webhook URL for external notifications
+    pub fn add_webhook(&self, url: String) {
+        self.webhook_urls.write().push(url);
+    }
+    
+    /// Remove a webhook URL
+    pub fn remove_webhook(&self, url: &str) {
+        let mut webhooks = self.webhook_urls.write();
+        webhooks.retain(|w| w != url);
+    }
+    
+    /// Subscribe to event types
+    pub fn subscribe(
+        &self,
+        servant_id: String,
+        event_types: Vec<MessageType>,
+    ) -> Result<String, ServantError> {
+        let subscription_id = uuid::Uuid::new_v4().to_string();
+        
+        let subscription = EventSubscription {
+            id: subscription_id.clone(),
+            servant_id,
+            event_types,
+            active: true,
+        };
+        
+        self.subscriptions.write().insert(subscription_id.clone(), subscription);
+        
+        Ok(subscription_id)
+    }
+    
+    /// Unsubscribe from events
+    pub fn unsubscribe(&self, subscription_id: &str) -> Result<(), ServantError> {
+        if self.subscriptions.write().remove(subscription_id).is_some() {
+            Ok(())
+        } else {
+            Err(ServantError::InvalidTask(format!(
+                "Subscription {} not found",
+                subscription_id
+            )))
         }
     }
     
@@ -263,14 +402,231 @@ impl Speaker {
         Ok(())
     }
     
-    /// Broadcast a message to all servants
-    async fn broadcast(&self, message: GuildMessage) {
-        self.messages.write().push(message);
+    /// Broadcast a message to all servants with multi-channel notification
+    async fn broadcast(&self, mut message: GuildMessage) {
+        // Default channels from config
+        if message.channels.is_empty() {
+            message.channels = self.notification_config.read().channels.clone();
+        }
+        
+        // Always add to message history
+        self.messages.write().push(message.clone());
+        
+        // Log notification if enabled
+        if self.notification_config.read().log_notifications {
+            self.log_notification(&message);
+        }
+        
+        // Send to console channel
+        if message.channels.contains(&NotificationChannel::Console) || 
+           message.channels.contains(&NotificationChannel::All) {
+            self.send_to_console(&message);
+        }
+        
+        // Send to logs channel
+        if message.channels.contains(&NotificationChannel::Logs) || 
+           message.channels.contains(&NotificationChannel::All) {
+            self.send_to_logs(&message);
+        }
+        
+        // Send to external webhooks
+        if message.channels.contains(&NotificationChannel::All) {
+            self.send_to_webhooks(&message).await;
+        }
+        
+        // Send to specific external channels
+        for channel in &message.channels {
+            if let NotificationChannel::External(url) = channel {
+                self.send_to_webhook(url, &message).await;
+            }
+        }
+        
+        // Send to specific servant(s)
+        if let Some(recipients) = &message.recipients {
+            for recipient in recipients {
+                if message.channels.contains(&NotificationChannel::Servant(recipient.clone())) {
+                    self.send_to_servant(recipient, &message);
+                }
+            }
+        }
+        
+        // Notify subscribers
+        self.notify_subscribers(&message);
     }
     
-    /// Get message history
-    pub fn get_messages(&self) -> Vec<GuildMessage> {
-        self.messages.read().clone()
+    /// Log a notification
+    fn log_notification(&self, message: &GuildMessage) {
+        let importance = if message.important { "IMPORTANT" } else { "INFO" };
+        println!(
+            "[Speaker - {}] [{}] {} sent: {}",
+            Utc::now().format("%Y-%m-%d %H:%M:%S"),
+            importance,
+            message.sender,
+            message.content
+        );
+    }
+    
+    /// Send message to console
+    fn send_to_console(&self, message: &GuildMessage) {
+        if message.important {
+            println!("📢 [Speaker] {}", message.content);
+        } else {
+            println!("[Speaker] {}", message.content);
+        }
+    }
+    
+    /// Send message to logs
+    fn send_to_logs(&self, message: &GuildMessage) {
+        let level = if message.important { "WARN" } else { "INFO" };
+        println!(
+            "[{}][Speaker] {} - {}",
+            Utc::now().format("%Y-%m-%d %H:%M:%S"),
+            level,
+            message.content
+        );
+    }
+    
+    /// Send message to webhooks
+    async fn send_to_webhooks(&self, message: &GuildMessage) {
+        let webhooks = self.webhook_urls.read().clone();
+        for webhook in webhooks {
+            self.send_to_webhook(&webhook, message).await;
+        }
+    }
+    
+    /// Send message to a specific webhook
+    async fn send_to_webhook(&self, _url: &str, _message: &GuildMessage) {
+        // TODO: Implement actual HTTP webhook sending
+        // This would use reqwest to POST the message to the webhook URL
+        println!("[Speaker] Webhook notification would be sent to: {}", _url);
+    }
+    
+    /// Send message to a specific servant
+    fn send_to_servant(&self, _servant_id: &str, _message: &GuildMessage) {
+        // TODO: Implement actual servant message sending
+        // This would route the message through the Guild's message router
+        println!("[Speaker] Direct message would be sent to: {}", _servant_id);
+    }
+    
+    /// Notify subscribers of events
+    fn notify_subscribers(&self, message: &GuildMessage) {
+        let subscriptions = self.subscriptions.read();
+        
+        for subscription in subscriptions.values() {
+            if !subscription.active {
+                continue;
+            }
+            
+            // Check if subscription matches message type
+            if subscription.event_types.contains(&message.message_type) {
+                println!(
+                    "[Speaker] Notifying subscriber {} of event type: {:?}",
+                    subscription.servant_id, message.message_type
+                );
+                // TODO: Actually notify the servant
+            }
+        }
+    }
+    
+    /// Send an alert notification
+    pub async fn send_alert(&self, content: String) {
+        self.broadcast(GuildMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            sender: self.id.as_str().to_string(),
+            content,
+            message_type: MessageType::Alert,
+            timestamp: Utc::now(),
+            important: true,
+            channels: vec![NotificationChannel::All],
+            recipients: None,
+        }).await;
+    }
+    
+    /// Send a task assignment notification
+    pub async fn notify_task_assignment(
+        &self,
+        task_id: String,
+        servant_id: String,
+        description: String,
+    ) {
+        self.broadcast(GuildMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            sender: self.id.as_str().to_string(),
+            content: format!(
+                "📋 Task assigned to {}: {}\nTask ID: {}",
+                servant_id, description, task_id
+            ),
+            message_type: MessageType::TaskAssignment,
+            timestamp: Utc::now(),
+            important: true,
+            channels: vec![NotificationChannel::Console, NotificationChannel::Servant(servant_id)],
+            recipients: Some(vec![servant_id]),
+        }).await;
+    }
+    
+    /// Send a task completion notification
+    pub async fn notify_task_completion(
+        &self,
+        task_id: String,
+        servant_id: String,
+        result: String,
+    ) {
+        self.broadcast(GuildMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            sender: self.id.as_str().to_string(),
+            content: format!(
+                "✅ Task completed by {}: {}\nTask ID: {}\nResult: {}",
+                servant_id, task_id, task_id, result
+            ),
+            message_type: MessageType::TaskCompletion,
+            timestamp: Utc::now(),
+            important: true,
+            channels: vec![NotificationChannel::All],
+            recipients: None,
+        }).await;
+    }
+    
+    /// Send a security event notification
+    pub async fn notify_security_event(
+        &self,
+        servant_id: String,
+        event_type: String,
+        details: String,
+    ) {
+        self.broadcast(GuildMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            sender: self.id.as_str().to_string(),
+            content: format!(
+                "🔒 Security event from {}: {}\nDetails: {}",
+                servant_id, event_type, details
+            ),
+            message_type: MessageType::SecurityEvent,
+            timestamp: Utc::now(),
+            important: true,
+            channels: vec![NotificationChannel::Logs, NotificationChannel::Console],
+            recipients: None,
+        }).await;
+    }
+    
+    /// Get message history filtered by type
+    pub fn get_messages_by_type(&self, message_type: MessageType) -> Vec<GuildMessage> {
+        self.messages
+            .read()
+            .iter()
+            .filter(|m| m.message_type == message_type)
+            .cloned()
+            .collect()
+    }
+    
+    /// Get message history for a specific servant
+    pub fn get_messages_for_servant(&self, servant_id: &str) -> Vec<GuildMessage> {
+        self.messages
+            .read()
+            .iter()
+            .filter(|m| m.sender == servant_id || 
+                     m.recipients.as_ref().map_or(false, |r| r.contains(servant_id)))
+            .cloned()
+            .collect()
     }
     
     /// Get active discussions
@@ -347,6 +703,10 @@ impl Servant for Speaker {
             "facilitate".to_string(),
             "broadcast".to_string(),
             "discuss".to_string(),
+            "notify".to_string(),
+            "alert".to_string(),
+            "subscribe".to_string(),
+            "webhook".to_string(),
         ]
     }
 }

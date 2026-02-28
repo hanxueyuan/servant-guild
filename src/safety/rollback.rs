@@ -149,6 +149,11 @@ impl TransactionManager {
         });
     }
 
+    /// Create a snapshot for a given path
+    pub fn create_snapshot(&self, path: &std::path::Path) -> Result<Snapshot> {
+        self.snapshot_manager.create_snapshot(path)
+    }
+
     /// Prepare all operations (create snapshots)
     pub fn prepare(&self) -> Result<()> {
         let mut status = self.status.lock();

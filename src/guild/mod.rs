@@ -51,7 +51,11 @@ use crate::servants::{
     Coordinator, Worker, Warden, Speaker, Contractor,
     Servant, ServantId, ServantRole, ServantStatus, ServantError,
 };
-use crate::safety::{AuditLog, RollbackManager};
+use crate::safety::{AuditLogger, TransactionManager, SnapshotManager};
+
+// Type aliases for consistency
+type AuditLog = AuditLogger;
+type RollbackManager = TransactionManager;
 
 /// The Guild - coordinates all servants
 pub struct Guild {
@@ -188,13 +192,17 @@ impl Guild {
         
         // Setup audit log and rollback manager
         let audit_log = if config.enable_audit {
-            Some(Arc::new(AuditLog::new()?))
+            let zeroclaw_dir = std::path::PathBuf::from("."); // TODO: Get from config
+            let audit_config = crate::config::AuditConfig::default();
+            Some(Arc::new(AuditLog::new(audit_config, zeroclaw_dir)?))
         } else {
             None
         };
         
         let rollback_manager = if config.enable_rollback {
-            Some(Arc::new(RollbackManager::new()?))
+            let snapshot_path = std::path::PathBuf::from("./snapshots"); // TODO: Get from config
+            let snapshot_manager = Arc::new(SnapshotManager::new(snapshot_path)?);
+            Some(Arc::new(TransactionManager::new(snapshot_manager)))
         } else {
             None
         };
@@ -314,17 +322,13 @@ impl Guild {
         // 3. Process through Coordinator
         let result = self.coordinator.read().process_request(request.clone()).await
             .map_err(|e| GuildError::ServantError(e))?;
-        
+
         // 4. Audit the operation
         if let Some(audit) = &self.audit_log {
-            audit.log(
-                crate::safety::AuditEventType::Custom("process_request".to_string()),
-                serde_json::json!({
-                    "operation_id": &operation_id,
-                    "request": &request,
-                    "result": &result,
-                }),
-            ).ok();
+            use crate::safety::audit::AuditEvent;
+            let event = AuditEvent::new(crate::safety::AuditEventType::Custom("process_request".to_string()))
+                .with_result(true, None, 0, Some(format!("{:?}", result)));
+            audit.log(&event).ok();
         }
         
         *self.status.write() = GuildStatus::Ready;
@@ -360,7 +364,8 @@ impl Guild {
         // Create snapshot for risky operations
         let snapshot_id = if security_check.risk_level > 5 {
             if let Some(manager) = &self.rollback_manager {
-                Some(manager.create_snapshot(tool_name).ok())
+                let path = std::path::Path::new(tool_name);
+                Some(manager.create_snapshot(path).ok())
             } else {
                 None
             }
@@ -374,9 +379,9 @@ impl Guild {
         
         if !result.success {
             // Rollback if we created a snapshot
-            if let Some(Some(id)) = snapshot_id {
+            if let Some(Some(_id)) = snapshot_id {
                 if let Some(manager) = &self.rollback_manager {
-                    manager.rollback(&id).ok();
+                    manager.rollback().ok();
                 }
             }
             
@@ -497,6 +502,12 @@ pub enum GuildError {
 
 impl From<crate::safety::SafetyError> for GuildError {
     fn from(e: crate::safety::SafetyError) -> Self {
+        GuildError::Internal(e.to_string())
+    }
+}
+
+impl From<anyhow::Error> for GuildError {
+    fn from(e: anyhow::Error) -> Self {
         GuildError::Internal(e.to_string())
     }
 }

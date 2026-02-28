@@ -40,6 +40,7 @@ pub enum AuditEventType {
     PolicyViolation,
     SecurityEvent,
     ServantAction, // New for ServantGuild
+    Custom(String), // For custom event types
 }
 
 /// Actor information (who performed the action)
