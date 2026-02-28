@@ -56,11 +56,14 @@ mod rag {
     pub use zeroclaw::rag::*;
 }
 mod config;
+mod consensus;
+mod coordination;
 mod cost;
 mod cron;
 mod daemon;
 mod doctor;
 mod gateway;
+mod guild;
 mod hardware;
 mod health;
 mod heartbeat;
@@ -75,7 +78,9 @@ mod onboard;
 mod peripherals;
 mod providers;
 mod runtime;
+mod safety;
 mod security;
+mod servants;
 mod service;
 mod skillforge;
 mod skills;
@@ -786,11 +791,12 @@ async fn main() -> Result<()> {
     // Initialize Safety Core (Prudent Agency)
     let audit_logger = std::sync::Arc::new(
         security::audit::AuditLogger::new(
-            config.workspace_dir.join("audit_logs")
+            config.security.audit.clone(),
+            config.workspace_dir.clone()
         )?
     );
     let _snapshot_manager = std::sync::Arc::new(
-        security::snapshot::SnapshotManager::new(
+        safety::snapshot::SnapshotManager::new(
             config.workspace_dir.join("snapshots")
         )
     );
@@ -824,9 +830,9 @@ async fn main() -> Result<()> {
             // TODO: Inject AuditLogger into Runtime once WasmRuntime supports it
             // For now, we just log the attempt
             audit_logger.log(&security::audit::AuditEvent::new(
-                security::audit::AuditEventType::ServantAction
+                security::audit::AuditEventType::CommandExecution
             ).with_actor("host".to_string(), None, None)
-             .with_resource_action("launch_servant", &name))?;
+             .with_action(format!("launch_servant:{}", name), "medium".to_string(), true, true))?;
 
             match runtime.execute_component(&name, &task_id, &input, &workspace).await {
                 Ok(result) => {
