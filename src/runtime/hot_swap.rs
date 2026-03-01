@@ -418,7 +418,7 @@ impl HotSwapManager {
 }
 
 /// Hot-swap manager trait
-#[async_trait]
+#[async_trait::async_trait]
 pub trait HotSwap: Send + Sync {
     /// Load a module
     async fn load_module(
@@ -451,7 +451,7 @@ pub trait HotSwap: Send + Sync {
     async fn get_module_history(&self, module_name: String) -> Vec<ModuleVersion>;
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl HotSwap for HotSwapManager {
     async fn load_module(
         &self,

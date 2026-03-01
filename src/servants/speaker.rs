@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -133,6 +134,7 @@ pub struct Speaker {
     subscriptions: RwLock<HashMap<String, EventSubscription>>,
     /// External webhook URLs
     webhook_urls: RwLock<Vec<String>>,
+    inboxes: RwLock<HashMap<String, Vec<GuildMessage>>>,
 }
 
 /// A discussion thread
@@ -168,6 +170,7 @@ impl Speaker {
             notification_config: RwLock::new(NotificationConfig::default()),
             subscriptions: RwLock::new(HashMap::new()),
             webhook_urls: RwLock::new(Vec::new()),
+            inboxes: RwLock::new(HashMap::new()),
         }
     }
 
@@ -182,6 +185,7 @@ impl Speaker {
             notification_config: RwLock::new(config),
             subscriptions: RwLock::new(HashMap::new()),
             webhook_urls: RwLock::new(Vec::new()),
+            inboxes: RwLock::new(HashMap::new()),
         }
     }
 
@@ -510,16 +514,44 @@ impl Speaker {
 
     /// Send message to a specific webhook
     async fn send_to_webhook(&self, _url: &str, _message: &GuildMessage) {
-        // TODO: Implement actual HTTP webhook sending
-        // This would use reqwest to POST the message to the webhook URL
-        println!("[Speaker] Webhook notification would be sent to: {}", _url);
+        let client = crate::config::build_runtime_proxy_client_with_timeouts(
+            "servant_speaker.webhook",
+            15,
+            10,
+        );
+
+        let payload = json!({
+            "id": _message.id,
+            "sender": _message.sender,
+            "content": _message.content,
+            "message_type": format!("{:?}", _message.message_type),
+            "timestamp": _message.timestamp.to_rfc3339(),
+            "important": _message.important,
+        });
+
+        let resp = client.post(_url).json(&payload).send().await;
+        let resp = match resp {
+            Ok(resp) => resp,
+            Err(e) => {
+                println!("[Speaker] Webhook send failed: {}", e);
+                return;
+            }
+        };
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            println!("[Speaker] Webhook returned {}: {}", status, body);
+        }
     }
 
     /// Send message to a specific servant
     fn send_to_servant(&self, _servant_id: &str, _message: &GuildMessage) {
-        // TODO: Implement actual servant message sending
-        // This would route the message through the Guild's message router
-        println!("[Speaker] Direct message would be sent to: {}", _servant_id);
+        let mut inboxes = self.inboxes.write();
+        inboxes
+            .entry(_servant_id.to_string())
+            .or_insert_with(Vec::new)
+            .push(_message.clone());
     }
 
     /// Notify subscribers of events
@@ -533,13 +565,17 @@ impl Speaker {
 
             // Check if subscription matches message type
             if subscription.event_types.contains(&message.message_type) {
-                println!(
-                    "[Speaker] Notifying subscriber {} of event type: {:?}",
-                    subscription.servant_id, message.message_type
-                );
-                // TODO: Actually notify the servant
+                self.send_to_servant(&subscription.servant_id, message);
             }
         }
+    }
+
+    pub fn get_inbox(&self, servant_id: &str) -> Vec<GuildMessage> {
+        self.inboxes
+            .read()
+            .get(servant_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Send an alert notification

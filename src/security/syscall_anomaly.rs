@@ -5,7 +5,7 @@
 //! when the observed pattern deviates from the configured baseline.
 
 use crate::config::{AuditConfig, SyscallAnomalyConfig};
-use crate::security::audit::{AuditEvent, AuditEventType, AuditLogger};
+use crate::safety::audit::{AuditEvent, AuditEventType, AuditLogger};
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use regex::Regex;

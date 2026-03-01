@@ -11,11 +11,13 @@ impl Host for HostState {
             use crate::consensus::Proposal;
             
             // Create a proposal with default decision type (Normal)
+            let servant_id = self.servant_id.clone();
+            consensus_engine.register_servant(servant_id.clone());
             let proposal = consensus_engine
                 .create_proposal(
                     title.clone(),
                     description.clone(),
-                    "unknown_servant".to_string(), // TODO: Get actual servant ID from context
+                    servant_id,
                     DecisionType::SystemUpdate,
                     None,
                 )
@@ -36,10 +38,12 @@ impl Host for HostState {
                 Vote::Reject
             };
             
+            let servant_id = self.servant_id.clone();
+            consensus_engine.register_servant(servant_id.clone());
             consensus_engine
                 .cast_vote(
                     &proposal_id,
-                    "unknown_servant".to_string(), // TODO: Get actual servant ID from context
+                    servant_id,
                     vote_type,
                     reason,
                 )

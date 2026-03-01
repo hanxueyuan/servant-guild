@@ -17,7 +17,7 @@ use std::sync::Arc;
 use super::{
     Servant, ServantError, ServantId, ServantResult, ServantRole, ServantStatus, ServantTask,
 };
-use crate::consensus::{ConsensusEngine, Vote};
+use crate::consensus::{ConsensusEngine, ConsensusResult, DecisionType, Vote};
 
 /// A tool that the worker can execute
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -564,9 +564,62 @@ impl Worker {
 
         // Check if approval is needed
         if tool.requires_approval {
-            // TODO: Check consensus for approval
-            // For now, we'll proceed but log that approval was needed
-            println!("[Worker] Tool {} requires approval", tool_name);
+            let consensus = self.consensus.as_ref().ok_or_else(|| {
+                ServantError::InvalidTask(format!(
+                    "Tool '{}' requires approval but consensus is not available",
+                    tool_name
+                ))
+            })?;
+
+            let servant_id = self.id.as_str().to_string();
+            consensus.register_servant(servant_id.clone());
+
+            let decision_type = match tool_name {
+                "write_file" => DecisionType::ConfigChange,
+                "delete_file" => DecisionType::SecurityChange,
+                "run_command" => DecisionType::SystemUpdate,
+                "http_request" => DecisionType::SecurityChange,
+                _ => DecisionType::CodeChange,
+            };
+
+            let proposal = consensus
+                .create_proposal(
+                    format!("Approve tool: {tool_name}"),
+                    "Worker requests permission to execute a high-risk tool".to_string(),
+                    servant_id.clone(),
+                    decision_type,
+                    Some(params.clone()),
+                )
+                .map_err(|e| ServantError::InvalidTask(format!("Failed to create proposal: {e}")))?;
+
+            consensus
+                .cast_vote(
+                    &proposal.id,
+                    servant_id,
+                    Vote::Approve,
+                    "requester approval".to_string(),
+                )
+                .map_err(|e| ServantError::InvalidTask(format!("Failed to cast vote: {e}")))?;
+
+            let tally = consensus
+                .evaluate_proposal(&proposal.id)
+                .map_err(|e| ServantError::InvalidTask(format!("Failed to evaluate proposal: {e}")))?;
+
+            if !matches!(tally.result, ConsensusResult::Passed) {
+                return Ok(ToolResult {
+                    tool_name: tool_name.to_string(),
+                    success: false,
+                    output: serde_json::json!({
+                        "proposal_id": proposal.id,
+                        "result": format!("{:?}", tally.result),
+                        "required_quorum": tally.required_quorum,
+                        "total_votes": tally.total_votes,
+                    }),
+                    error: Some("Consensus approval required".to_string()),
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    retry_count: 0,
+                });
+            }
         }
 
         // Mark as busy

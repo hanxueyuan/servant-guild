@@ -7,7 +7,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use rand::RngCore;
+use aes_gcm::aead::rand_core::RngCore;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

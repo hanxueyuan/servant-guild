@@ -92,7 +92,7 @@ pub struct RuntimeManager {
     /// Rollback points (name -> version)
     rollback_points: Arc<RwLock<HashMap<String, String>>>,
     /// Wasmtime stores
-    stores: Arc<RwLock<HashMap<String, Store<wasmtypes::State>>>>,
+    stores: Arc<RwLock<HashMap<String, Store<State>>>>,
 }
 
 /// State for Wasmtime store
@@ -316,6 +316,48 @@ impl RuntimeManager {
     pub async fn get_active_version(&self, name: &str) -> Option<String> {
         let active_versions = self.active_versions.read().await;
         active_versions.get(name).cloned()
+    }
+
+    pub async fn get_all_active_versions(&self) -> HashMap<String, String> {
+        self.active_versions.read().await.clone()
+    }
+
+    pub async fn stop_module(&self, name: &str) -> Result<()> {
+        let mut stores = self.stores.write().await;
+        stores.remove(name);
+        Ok(())
+    }
+
+    pub async fn start_module(&self, name: &str) -> Result<()> {
+        let active_version = self
+            .get_active_version(name)
+            .await
+            .context("No active version")?;
+
+        let versions = self.versions.read().await;
+        let module_versions = versions.get(name).context("Module not found")?;
+        let active = module_versions
+            .iter()
+            .find(|v| v.version == active_version)
+            .context("Active version metadata not found")?;
+
+        let module = Module::from_file(&self.engine, &active.wasm_path)
+            .context("Failed to load Wasm module")?;
+
+        let mut store = Store::new(
+            &self.engine,
+            State {
+                memory_limit: 64 * 1024 * 1024,
+            },
+        );
+
+        let _instance = wasmtime::Instance::new(&mut store, &module, &[])
+            .context("Failed to create instance")?;
+
+        let mut stores = self.stores.write().await;
+        stores.insert(name.to_string(), store);
+
+        Ok(())
     }
 
     /// Get all versions for a module

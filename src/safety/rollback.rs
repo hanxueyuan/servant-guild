@@ -476,20 +476,89 @@ impl RollbackRecoveryManager {
 
     /// Execute recovery plan
     pub async fn execute_recovery_plan(&self, plan: &mut RecoveryPlan) -> Result<RollbackResult> {
-        // TODO: Implement actual recovery execution
-        // For now, just mark all steps as completed
+        let snapshot_dir = self.snapshots_dir.join(&plan.target_snapshot_id);
+        let versions_path = snapshot_dir.join("versions.json");
+        let versions_json = fs::read_to_string(&versions_path).await?;
+        let snapshot_versions: HashMap<String, String> = serde_json::from_str(&versions_json)?;
+
+        let mut errors = Vec::new();
+        let mut affected_modules = Vec::new();
 
         for step in plan.steps.iter_mut() {
-            step.completed = true;
+            let deps_met = step.dependencies.iter().all(|dep| {
+                plan.steps
+                    .iter()
+                    .find(|s| s.id == *dep)
+                    .map(|s| s.completed)
+                    .unwrap_or(false)
+            });
+
+            if !deps_met {
+                step.error = Some("Dependencies not completed".to_string());
+                errors.push(format!("Step {}: dependencies not completed", step.id));
+                continue;
+            }
+
+            let result: Result<()> = match step.step_type {
+                RecoveryStepType::StopModule => {
+                    for module_name in snapshot_versions.keys() {
+                        let _ = self.runtime.stop_module(module_name).await;
+                    }
+                    Ok(())
+                }
+                RecoveryStepType::RollbackModule => {
+                    let res = self.restore_snapshot(&plan.target_snapshot_id).await?;
+                    affected_modules.extend(res.modules);
+                    if !res.errors.is_empty() {
+                        for e in res.errors {
+                            errors.push(e);
+                        }
+                    }
+                    Ok(())
+                }
+                RecoveryStepType::RestoreData | RecoveryStepType::RestoreConfig | RecoveryStepType::Cleanup => Ok(()),
+                RecoveryStepType::StartModule => {
+                    for module_name in snapshot_versions.keys() {
+                        self.runtime.start_module(module_name).await?;
+                    }
+                    Ok(())
+                }
+                RecoveryStepType::VerifyState => {
+                    for (module_name, expected_version) in &snapshot_versions {
+                        let active = self.runtime.get_active_version(module_name).await;
+                        if active.as_deref() != Some(expected_version.as_str()) {
+                            errors.push(format!(
+                                "Module {} active version mismatch (expected {}, got {:?})",
+                                module_name, expected_version, active
+                            ));
+                        }
+                    }
+                    Ok(())
+                }
+            };
+
+            match result {
+                Ok(()) => {
+                    step.completed = true;
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    step.error = Some(msg.clone());
+                    errors.push(format!("Step {} failed: {}", step.id, msg));
+                }
+            }
         }
 
+        affected_modules.sort();
+        affected_modules.dedup();
+
         Ok(RollbackResult {
-            success: true,
+            success: errors.is_empty(),
             timestamp: Utc::now(),
             from_snapshot_id: None,
             to_snapshot_id: plan.target_snapshot_id.clone(),
-            modules: vec![],
-            errors: vec![],
+            modules: affected_modules,
+            errors,
         })
     }
 
@@ -530,9 +599,7 @@ impl RollbackRecoveryManager {
 
     /// Collect current module versions
     async fn collect_module_versions(&self) -> Result<HashMap<String, String>> {
-        // TODO: Implement collection of module versions from runtime
-        // For now, return empty map
-        Ok(HashMap::new())
+        Ok(self.runtime.get_all_active_versions().await)
     }
 
     /// Calculate snapshot size

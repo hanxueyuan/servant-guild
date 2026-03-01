@@ -8,20 +8,25 @@
 
 pub mod audit;
 pub mod encryption;
+pub mod pairing;
+pub mod policy;
+pub mod domain_matcher;
 pub mod network;
 pub mod secrets;
+pub mod syscall_anomaly;
 pub mod validation;
 
 use serde::{Deserialize, Serialize};
 
 pub use audit::{AuditEntry, AuditLog};
 pub use encryption::{EncryptionKey, Encryptor};
+pub use pairing::PairingGuard;
+pub use policy::{AutonomyLevel, SecurityPolicy, ToolOperation};
+pub use domain_matcher::DomainMatcher;
 pub use network::{NetworkIsolation, NetworkPolicy};
 pub use secrets::{Secret, SecretStore, SecretsManager};
+pub use syscall_anomaly::SyscallAnomalyDetector;
 pub use validation::{InputValidator, ValidationError};
-
-// Re-export SafetyPolicy as SecurityPolicy for compatibility
-pub use crate::safety::{RiskLevel, SafetyPolicy as SecurityPolicy};
 
 /// Security configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

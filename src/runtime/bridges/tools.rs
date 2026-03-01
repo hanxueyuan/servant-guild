@@ -1,6 +1,8 @@
 use crate::runtime::state::HostState;
 use crate::runtime::bindings::zeroclaw::host::tools::{Host, ToolDesc};
+use crate::safety::audit::{AuditEvent, AuditEventType};
 use wasmtime::Result;
+use std::time::Instant;
 
 #[async_trait::async_trait]
 impl Host for HostState {
@@ -24,10 +26,26 @@ impl Host for HostState {
                 Err(e) => return Err(format!("Invalid JSON arguments: {}", e)),
             };
 
-            // TODO: Add AuditLogger call here
-            
+            let started = Instant::now();
             match tool.execute(args_json).await {
                 Ok(result) => {
+                    let duration_ms = started.elapsed().as_millis() as u64;
+                    let event = AuditEvent::new(AuditEventType::ServantAction)
+                        .with_agent(self.servant_id.clone())
+                        .with_action(
+                            format!("tool:{}", name),
+                            "medium".to_string(),
+                            true,
+                            result.success,
+                        )
+                        .with_result(
+                            result.success,
+                            None,
+                            duration_ms,
+                            result.error.clone(),
+                        )
+                        .finalize();
+                    let _ = self.audit_logger.log(&event);
                     if result.success {
                         Ok(result.output)
                     } else {

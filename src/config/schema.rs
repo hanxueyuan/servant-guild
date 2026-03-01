@@ -206,6 +206,10 @@ pub struct Config {
     #[serde(default)]
     pub agents: HashMap<String, DelegateAgentConfig>,
 
+    /// Agents IPC coordination configuration (`[agents_ipc]`).
+    #[serde(default)]
+    pub agents_ipc: AgentsIpcConfig,
+
     /// Hooks configuration (lifecycle hooks and built-in hook toggles).
     #[serde(default)]
     pub hooks: HooksConfig,
@@ -274,6 +278,36 @@ fn default_max_depth() -> u32 {
 
 fn default_max_tool_iterations() -> usize {
     10
+}
+
+// ── Agents IPC ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AgentsIpcConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_agents_ipc_db_path")]
+    pub db_path: PathBuf,
+    #[serde(default = "default_agents_ipc_staleness_secs")]
+    pub staleness_secs: u64,
+}
+
+fn default_agents_ipc_db_path() -> PathBuf {
+    PathBuf::from("agents_ipc.db")
+}
+
+fn default_agents_ipc_staleness_secs() -> u64 {
+    30
+}
+
+impl Default for AgentsIpcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            db_path: default_agents_ipc_db_path(),
+            staleness_secs: default_agents_ipc_staleness_secs(),
+        }
+    }
 }
 
 // ── Hardware Config (wizard-driven) ─────────────────────────────

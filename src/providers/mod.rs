@@ -38,6 +38,10 @@ pub use traits::{
     ToolCall, ToolResultMessage,
 };
 
+pub trait LLMProvider: Provider {}
+
+impl<T: Provider + ?Sized> LLMProvider for T {}
+
 use crate::auth::AuthService;
 use compatible::{AuthStyle, OpenAiCompatibleProvider};
 use reliable::ReliableProvider;

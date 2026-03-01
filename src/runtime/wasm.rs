@@ -12,8 +12,16 @@
 
 use super::traits::RuntimeAdapter;
 use crate::config::WasmRuntimeConfig;
+use crate::consensus::ConsensusEngine;
+use crate::memory::Memory;
+use crate::providers::traits::Provider;
+use crate::safety::audit::AuditLogger;
+use crate::safety::TransactionManager;
+use crate::tools::traits::Tool;
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// WASM sandbox runtime — executes tool modules in an isolated interpreter.
 #[derive(Debug, Clone)]
@@ -28,6 +36,34 @@ pub struct WasmExecutionResult {
     pub output: String,
     pub exit_code: i32,
     pub fuel_consumed: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WasmCapabilities {
+    pub read_workspace: bool,
+    pub write_workspace: bool,
+    pub allowed_hosts: Vec<String>,
+    pub fuel_override: Option<u64>,
+    pub memory_override_mb: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WasmModuleResult {
+    pub module_sha256: String,
+    pub exit_code: i32,
+    pub fuel_consumed: u64,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+#[derive(Clone)]
+pub struct HostStateDeps {
+    pub provider: Arc<dyn Provider>,
+    pub tools: Arc<HashMap<String, Arc<dyn Tool>>>,
+    pub audit_logger: Arc<AuditLogger>,
+    pub consensus_engine: Option<Arc<ConsensusEngine>>,
+    pub memory: Option<Arc<dyn Memory>>,
+    pub rollback_manager: Option<Arc<TransactionManager>>,
 }
 
 impl WasmRuntime {
@@ -56,6 +92,35 @@ impl WasmRuntime {
         workspace_dir.join(&self.config.tools_dir)
     }
 
+    pub fn list_modules(&self, workspace_dir: &Path) -> Result<Vec<String>> {
+        let dir = self.tools_dir(workspace_dir);
+        let entries = std::fs::read_dir(&dir)
+            .with_context(|| format!("Failed to read wasm tools dir: {}", dir.display()))?;
+
+        let mut modules = Vec::new();
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("wasm") {
+                continue;
+            }
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                modules.push(stem.to_string());
+            }
+        }
+        modules.sort();
+        Ok(modules)
+    }
+
+    pub fn execute_module(
+        &self,
+        _module: &str,
+        _workspace_dir: &Path,
+        _caps: &WasmCapabilities,
+    ) -> Result<WasmModuleResult> {
+        bail!("execute_module is not implemented; use execute_component for WIT components.")
+    }
+
     /// Execute a WASM component module (handle-task).
     #[cfg(feature = "runtime-wasm")]
     pub async fn execute_component(
@@ -64,6 +129,7 @@ impl WasmRuntime {
         task_id: &str,
         input: &str,
         workspace_dir: &Path,
+        deps: HostStateDeps,
     ) -> Result<WasmExecutionResult> {
         use crate::runtime::bindings::Servant;
         use crate::runtime::state::HostState;
@@ -99,24 +165,30 @@ impl WasmRuntime {
         let wasi = wasi_builder.build();
 
         // 3. Define Host State
-        // We need to inject the real provider/tools/audit_logger here.
-        // For now, we create stubs or use the ones passed (TODO: Update execute_component signature to take HostState deps)
-        let provider = std::sync::Arc::new(crate::providers::mock::MockProvider); // Stub
-        let tools = std::sync::Arc::new(std::collections::HashMap::new()); // Stub
-        let audit_logger = std::sync::Arc::new(crate::safety::audit::AuditLogger::new(
-            self.config.audit.clone(),
-            workspace_dir.join("audit_logs"),
-        )?);
-
-        // We need a ResourceTable for WasiCtx (preview2)
-        // wasmtime-wasi 28.0 includes ResourceTable in WasiCtx or separate?
-        // It seems WasiCtxBuilder builds WasiCtx.
-        // Wait, HostState expects (WasiCtx, Table, ...)
         let table = wasmtime::component::ResourceTable::new();
 
         let mut store = Store::new(
             &engine,
-            HostState::new(wasi, table, provider, tools, audit_logger),
+            {
+                let mut state = HostState::new(
+                    wasi,
+                    table,
+                    module_name.to_string(),
+                    deps.provider,
+                    deps.tools,
+                    deps.audit_logger,
+                );
+                if let Some(engine) = deps.consensus_engine {
+                    state = state.with_consensus_engine(engine);
+                }
+                if let Some(memory) = deps.memory {
+                    state = state.with_memory(memory);
+                }
+                if let Some(manager) = deps.rollback_manager {
+                    state = state.with_rollback_manager(manager);
+                }
+                state
+            },
         );
         store.set_fuel(self.config.fuel_limit)?;
 
@@ -163,19 +235,13 @@ impl WasmRuntime {
         _task_id: &str,
         _input: &str,
         _workspace_dir: &Path,
+        _deps: HostStateDeps,
     ) -> Result<WasmExecutionResult> {
         bail!(
             "WASM runtime is not available. Rebuild with `cargo build --features runtime-wasm`. Module: {}",
             module_name
         )
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum WasmCapabilities {
-    None,
-    Restricted,
-    Full,
 }
 
 impl RuntimeAdapter for WasmRuntime {

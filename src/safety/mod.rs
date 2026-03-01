@@ -6,16 +6,19 @@
 pub mod audit;
 pub mod canary;
 pub mod policy;
+#[cfg(feature = "rollback-recovery")]
 pub mod rollback;
 pub mod snapshot;
+#[cfg(feature = "rollback-recovery")]
 pub mod state_recovery;
 
-pub use audit::{AuditEntry, AuditEventType, AuditLog, AuditLogger};
+pub use audit::{AuditEvent, AuditEventType, AuditLogger};
 pub use canary::{
     Anomaly, AnomalyThreshold, CanaryConfig, CanaryPhase, CanaryResult, CanaryRunner, CanaryStatus,
     CanaryTester, MetricSummary, ThresholdStatus,
 };
 pub use policy::{RiskLevel, SafetyPolicy};
+#[cfg(feature = "rollback-recovery")]
 pub use rollback::{
     RecoveryPlan, RecoveryStep, RecoveryStepType, RecoveryType, RollbackRecoveryManager,
     RollbackResult, SnapshotEntry, SnapshotEntryType, SnapshotMetadata, SnapshotType,

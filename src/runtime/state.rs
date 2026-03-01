@@ -12,6 +12,7 @@ use wasmtime_wasi::{WasiCtx, WasiView};
 pub struct HostState {
     pub wasi: WasiCtx,
     pub table: ResourceTable,
+    pub servant_id: String,
     pub provider: Arc<dyn Provider>,
     pub tools: Arc<HashMap<String, Arc<dyn Tool>>>,
     pub audit_logger: Arc<AuditLogger>,
@@ -24,6 +25,7 @@ impl HostState {
     pub fn new(
         wasi: WasiCtx,
         table: ResourceTable,
+        servant_id: String,
         provider: Arc<dyn Provider>,
         tools: Arc<HashMap<String, Arc<dyn Tool>>>,
         audit_logger: Arc<AuditLogger>,
@@ -31,6 +33,7 @@ impl HostState {
         Self {
             wasi,
             table,
+            servant_id,
             provider,
             tools,
             audit_logger,

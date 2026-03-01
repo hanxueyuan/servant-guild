@@ -151,7 +151,7 @@ pub struct DependencyInfo {
 }
 
 /// Build automation trait
-#[async_trait]
+#[async_trait::async_trait]
 pub trait BuildAutomation: Send + Sync {
     /// Check if build tools are available
     async fn check_tools(&self) -> Result<bool>;
@@ -384,7 +384,7 @@ impl BuildAutomationImpl {
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl BuildAutomation for BuildAutomationImpl {
     async fn check_tools(&self) -> Result<bool> {
         let checks = vec![

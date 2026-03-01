@@ -177,7 +177,7 @@ pub struct GitHubBranch {
 }
 
 /// GitHub Bridge trait
-#[async_trait]
+#[async_trait::async_trait]
 pub trait GitHubBridge: Send + Sync {
     /// Clone the repository to local path
     async fn clone_repo(&self, path: PathBuf) -> Result<()>;
@@ -292,7 +292,7 @@ impl GitHubBridgeImpl {
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl GitHubBridge for GitHubBridgeImpl {
     async fn clone_repo(&self, path: PathBuf) -> Result<()> {
         // Use git2 crate or system git command
