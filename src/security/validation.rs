@@ -70,7 +70,7 @@ impl InputValidator {
             patterns: Self::default_patterns(),
         }
     }
-    
+
     /// Get default validation patterns (security-focused)
     fn default_patterns() -> Vec<ValidationPattern> {
         vec![
@@ -83,7 +83,7 @@ impl InputValidator {
                 reject_match: true,
                 error_message: "Potential SQL injection detected".to_string(),
             },
-            
+
             // XSS patterns
             ValidationPattern {
                 name: "xss".to_string(),
@@ -93,7 +93,7 @@ impl InputValidator {
                 reject_match: true,
                 error_message: "Potential XSS attack detected".to_string(),
             },
-            
+
             // Command injection patterns
             ValidationPattern {
                 name: "command_injection".to_string(),
@@ -103,7 +103,7 @@ impl InputValidator {
                 reject_match: true,
                 error_message: "Potential command injection detected".to_string(),
             },
-            
+
             // Path traversal patterns
             ValidationPattern {
                 name: "path_traversal".to_string(),
@@ -115,7 +115,7 @@ impl InputValidator {
             },
         ]
     }
-    
+
     /// Validate input string
     pub fn validate(&self, input: &str) -> Result<(), ValidationError> {
         // Check size
@@ -130,7 +130,7 @@ impl InputValidator {
                 field: None,
             });
         }
-        
+
         // Check patterns
         for pattern in &self.patterns {
             if pattern.reject_match && pattern.pattern.is_match(input) {
@@ -147,10 +147,10 @@ impl InputValidator {
                 });
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Validate with field name
     pub fn validate_field(&self, field: &str, input: &str) -> Result<(), ValidationError> {
         self.validate(input).map_err(|mut e| {
@@ -158,35 +158,35 @@ impl InputValidator {
             e
         })
     }
-    
+
     /// Sanitize input (remove dangerous content)
     pub fn sanitize(&self, input: &str) -> String {
         let mut result = input.to_string();
-        
+
         // Remove HTML tags
         result = html_escape::encode_text(&result).to_string();
-        
+
         // Remove control characters except newline and tab
         result = result
             .chars()
             .filter(|&c| c >= ' ' || c == '\n' || c == '\t')
             .collect();
-        
+
         result
     }
-    
+
     /// Add custom pattern
     pub fn add_pattern(&mut self, pattern: ValidationPattern) {
         self.patterns.push(pattern);
     }
-    
+
     /// Validate email
     pub fn validate_email(&self, email: &str) -> Result<(), ValidationError> {
         self.validate(email)?;
-        
+
         let email_pattern = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
             .expect("Invalid email pattern");
-        
+
         if !email_pattern.is_match(email) {
             return Err(ValidationError {
                 error_type: ValidationErrorType::InvalidFormat,
@@ -194,18 +194,18 @@ impl InputValidator {
                 field: Some("email".to_string()),
             });
         }
-        
+
         Ok(())
     }
-    
+
     /// Validate URL
     pub fn validate_url(&self, url: &str) -> Result<(), ValidationError> {
         self.validate(url)?;
-        
+
         // Only allow http and https
-        let url_pattern = Regex::new(r"^https?://[a-zA-Z0-9.-]+(:[0-9]+)?(/.*)?$")
-            .expect("Invalid URL pattern");
-        
+        let url_pattern =
+            Regex::new(r"^https?://[a-zA-Z0-9.-]+(:[0-9]+)?(/.*)?$").expect("Invalid URL pattern");
+
         if !url_pattern.is_match(url) {
             return Err(ValidationError {
                 error_type: ValidationErrorType::InvalidFormat,
@@ -213,17 +213,17 @@ impl InputValidator {
                 field: Some("url".to_string()),
             });
         }
-        
+
         Ok(())
     }
-    
+
     /// Validate identifier (alphanumeric with underscores/dashes)
     pub fn validate_identifier(&self, id: &str) -> Result<(), ValidationError> {
         self.validate(id)?;
-        
-        let id_pattern = Regex::new(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
-            .expect("Invalid identifier pattern");
-        
+
+        let id_pattern =
+            Regex::new(r"^[a-zA-Z][a-zA-Z0-9_-]*$").expect("Invalid identifier pattern");
+
         if !id_pattern.is_match(id) {
             return Err(ValidationError {
                 error_type: ValidationErrorType::InvalidFormat,
@@ -231,20 +231,20 @@ impl InputValidator {
                 field: Some("identifier".to_string()),
             });
         }
-        
+
         Ok(())
     }
-    
+
     /// Validate JSON string
     pub fn validate_json(&self, json: &str) -> Result<(), ValidationError> {
         self.validate(json)?;
-        
+
         serde_json::from_str::<serde_json::Value>(json).map_err(|_| ValidationError {
             error_type: ValidationErrorType::InvalidFormat,
             message: "Invalid JSON format".to_string(),
             field: Some("json".to_string()),
         })?;
-        
+
         Ok(())
     }
 }
@@ -258,19 +258,19 @@ impl Default for InputValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_validate_safe_input() {
         let validator = InputValidator::new(1000);
-        
+
         assert!(validator.validate("Hello, World!").is_ok());
         assert!(validator.validate("Normal text with numbers 123").is_ok());
     }
-    
+
     #[test]
     fn test_reject_sql_injection() {
         let validator = InputValidator::new(1000);
-        
+
         let result = validator.validate("'; DROP TABLE users; --");
         assert!(result.is_err());
         assert!(matches!(
@@ -278,11 +278,11 @@ mod tests {
             ValidationErrorType::SqlInjection
         ));
     }
-    
+
     #[test]
     fn test_reject_xss() {
         let validator = InputValidator::new(1000);
-        
+
         let result = validator.validate("<script>alert('xss')</script>");
         assert!(result.is_err());
         assert!(matches!(
@@ -290,29 +290,29 @@ mod tests {
             ValidationErrorType::XssAttack
         ));
     }
-    
+
     #[test]
     fn test_sanitize() {
         let validator = InputValidator::new(1000);
-        
+
         let input = "<script>alert('xss')</script>";
         let sanitized = validator.sanitize(input);
-        
+
         assert!(!sanitized.contains("<script>"));
     }
-    
+
     #[test]
     fn test_validate_email() {
         let validator = InputValidator::new(1000);
-        
+
         assert!(validator.validate_email("test@example.com").is_ok());
         assert!(validator.validate_email("invalid-email").is_err());
     }
-    
+
     #[test]
     fn test_validate_url() {
         let validator = InputValidator::new(1000);
-        
+
         assert!(validator.validate_url("https://example.com").is_ok());
         assert!(validator.validate_url("ftp://example.com").is_err());
     }

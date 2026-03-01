@@ -703,7 +703,7 @@ async fn main() -> Result<()> {
         }
         std::env::set_var("ZEROCLAW_CONFIG_DIR", config_dir);
     }
-    
+
     // Set default workspace if not set
     if std::env::var("ZEROCLAW_WORKSPACE").is_err() {
         let home = directories::UserDirs::new()
@@ -787,20 +787,16 @@ async fn main() -> Result<()> {
     // All other commands need config loaded first
     let mut config = Config::load_or_init().await?;
     config.apply_env_overrides();
-    
+
     // Initialize Safety Core (Prudent Agency)
-    let audit_logger = std::sync::Arc::new(
-        security::audit::AuditLogger::new(
-            config.security.audit.clone(),
-            config.workspace_dir.clone()
-        )?
-    );
-    let _snapshot_manager = std::sync::Arc::new(
-        safety::snapshot::SnapshotManager::new(
-            config.workspace_dir.join("snapshots")
-        )
-    );
-    
+    let audit_logger = std::sync::Arc::new(security::audit::AuditLogger::new(
+        config.security.audit.clone(),
+        config.workspace_dir.clone(),
+    )?);
+    let _snapshot_manager = std::sync::Arc::new(safety::snapshot::SnapshotManager::new(
+        config.workspace_dir.join("snapshots"),
+    ));
+
     observability::runtime_trace::init_from_config(&config.observability, &config.workspace_dir);
     if config.security.otp.enabled {
         let config_dir = config
@@ -820,21 +816,36 @@ async fn main() -> Result<()> {
         Commands::Onboard { .. } => unreachable!(),
         Commands::Completions { .. } => unreachable!(),
 
-        Commands::RunServant { name, task_id, input } => {
+        Commands::RunServant {
+            name,
+            task_id,
+            input,
+        } => {
             let runtime = runtime::wasm::WasmRuntime::new(config.runtime.wasm.clone());
             let workspace = config.workspace_dir.clone();
             let task_id = task_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            
+
             info!("🚀 Launching Servant: {} (Task: {})", name, task_id);
-            
+
             // TODO: Inject AuditLogger into Runtime once WasmRuntime supports it
             // For now, we just log the attempt
-            audit_logger.log(&security::audit::AuditEvent::new(
-                security::audit::AuditEventType::CommandExecution
-            ).with_actor("host".to_string(), None, None)
-             .with_action(format!("launch_servant:{}", name), "medium".to_string(), true, true))?;
+            audit_logger.log(
+                &security::audit::AuditEvent::new(
+                    security::audit::AuditEventType::CommandExecution,
+                )
+                .with_actor("host".to_string(), None, None)
+                .with_action(
+                    format!("launch_servant:{}", name),
+                    "medium".to_string(),
+                    true,
+                    true,
+                ),
+            )?;
 
-            match runtime.execute_component(&name, &task_id, &input, &workspace).await {
+            match runtime
+                .execute_component(&name, &task_id, &input, &workspace)
+                .await
+            {
                 Ok(result) => {
                     println!("Servant Execution Result:");
                     println!("-------------------------");

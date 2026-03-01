@@ -3,10 +3,10 @@
 //! A proposal represents a request for the guild to make a collective
 //! decision. It includes metadata, status tracking, and vote records.
 
+use crate::consensus::{DecisionType, Vote};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
-use crate::consensus::{DecisionType, Vote};
 
 /// A proposal for collective decision
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +48,7 @@ impl Proposal {
     ) -> Self {
         let now = Utc::now();
         let expires_at = now + chrono::Duration::hours(1); // Default 1 hour expiry
-        
+
         Self {
             id,
             title,
@@ -64,31 +64,31 @@ impl Proposal {
             priority: 5, // Normal priority
         }
     }
-    
+
     /// Create a proposal with payload
     pub fn with_payload(mut self, payload: serde_json::Value) -> Self {
         self.payload = Some(payload);
         self
     }
-    
+
     /// Set expiration time
     pub fn with_expiry(mut self, duration: chrono::Duration) -> Self {
         self.expires_at = Some(Utc::now() + duration);
         self
     }
-    
+
     /// Set tags
     pub fn with_tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
         self
     }
-    
+
     /// Set priority
     pub fn with_priority(mut self, priority: u8) -> Self {
         self.priority = priority.min(10); // Max priority is 10
         self
     }
-    
+
     /// Cast a vote on this proposal
     pub fn cast_vote(&mut self, record: VoteRecord) -> Result<(), VoteError> {
         if self.status != ProposalStatus::Active {
@@ -96,27 +96,27 @@ impl Proposal {
                 status: self.status.clone(),
             });
         }
-        
+
         if let Some(expires) = self.expires_at {
             if Utc::now() > expires {
                 self.status = ProposalStatus::Expired;
                 return Err(VoteError::ProposalExpired);
             }
         }
-        
+
         self.votes.insert(record.voter.clone(), record);
         Ok(())
     }
-    
+
     /// Check if a servant has already voted
     pub fn has_voted(&self, servant_id: &str) -> bool {
         self.votes.contains_key(servant_id)
     }
-    
+
     /// Get vote counts
     pub fn count_votes(&self) -> VoteCounts {
         let mut counts = VoteCounts::default();
-        
+
         for record in self.votes.values() {
             match record.vote {
                 Vote::Yes => counts.yes += 1,
@@ -124,11 +124,11 @@ impl Proposal {
                 Vote::Abstain => counts.abstain += 1,
             }
         }
-        
+
         counts.total = self.votes.len();
         counts
     }
-    
+
     /// Check if the proposal is expired
     pub fn is_expired(&self) -> bool {
         if let Some(expires) = self.expires_at {
@@ -137,22 +137,22 @@ impl Proposal {
             false
         }
     }
-    
+
     /// Mark the proposal as passed
     pub fn mark_passed(&mut self) {
         self.status = ProposalStatus::Passed;
     }
-    
+
     /// Mark the proposal as rejected
     pub fn mark_rejected(&mut self) {
         self.status = ProposalStatus::Rejected;
     }
-    
+
     /// Mark the proposal as vetoed by owner
     pub fn mark_vetoed(&mut self) {
         self.status = ProposalStatus::Vetoed;
     }
-    
+
     /// Mark the proposal as expired
     pub fn mark_expired(&mut self) {
         self.status = ProposalStatus::Expired;
@@ -206,7 +206,7 @@ impl VoteRecord {
             confidence: 100, // Default full confidence
         }
     }
-    
+
     /// Set confidence level
     pub fn with_confidence(mut self, confidence: u8) -> Self {
         self.confidence = confidence.min(100);
@@ -247,12 +247,12 @@ mod tests {
             "coordinator".to_string(),
             DecisionType::CodeChange,
         );
-        
+
         assert_eq!(proposal.id, "prop-001");
         assert_eq!(proposal.status, ProposalStatus::Active);
         assert!(proposal.votes.is_empty());
     }
-    
+
     #[test]
     fn test_vote_casting() {
         let mut proposal = Proposal::new(
@@ -262,21 +262,17 @@ mod tests {
             "coordinator".to_string(),
             DecisionType::CodeChange,
         );
-        
-        let vote = VoteRecord::new(
-            "worker".to_string(),
-            Vote::Yes,
-            "I approve".to_string(),
-        );
-        
+
+        let vote = VoteRecord::new("worker".to_string(), Vote::Yes, "I approve".to_string());
+
         assert!(proposal.cast_vote(vote).is_ok());
         assert!(proposal.has_voted("worker"));
-        
+
         let counts = proposal.count_votes();
         assert_eq!(counts.total, 1);
         assert_eq!(counts.yes, 1);
     }
-    
+
     #[test]
     fn test_vote_on_inactive_proposal() {
         let mut proposal = Proposal::new(
@@ -286,15 +282,11 @@ mod tests {
             "coordinator".to_string(),
             DecisionType::CodeChange,
         );
-        
+
         proposal.status = ProposalStatus::Passed;
-        
-        let vote = VoteRecord::new(
-            "worker".to_string(),
-            Vote::Yes,
-            "I approve".to_string(),
-        );
-        
+
+        let vote = VoteRecord::new("worker".to_string(), Vote::Yes, "I approve".to_string());
+
         assert!(proposal.cast_vote(vote).is_err());
     }
 }

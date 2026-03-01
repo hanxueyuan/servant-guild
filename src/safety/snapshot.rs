@@ -87,19 +87,25 @@ impl SnapshotManager {
         } else {
             SnapshotType::File
         };
-        
+
         let id = Uuid::new_v4().to_string();
         let timestamp = Utc::now();
         let backup_dir = self.store_path.join(&id);
-        
+
         fs::create_dir_all(&backup_dir)?;
-        
-        // Simple copy strategy for MVP. 
+
+        // Simple copy strategy for MVP.
         // Production should use Copy-on-Write (reflink) if supported by FS.
         if target_path.is_dir() {
-            copy_dir_recursive(target_path, &backup_dir.join(target_path.file_name().unwrap()))?;
+            copy_dir_recursive(
+                target_path,
+                &backup_dir.join(target_path.file_name().unwrap()),
+            )?;
         } else {
-            fs::copy(target_path, backup_dir.join(target_path.file_name().unwrap()))?;
+            fs::copy(
+                target_path,
+                backup_dir.join(target_path.file_name().unwrap()),
+            )?;
         }
 
         Ok(Snapshot {
@@ -117,15 +123,15 @@ impl SnapshotManager {
         let timestamp = Utc::now();
         let backup_dir = self.store_path.join(&id);
         fs::create_dir_all(&backup_dir)?;
-        
+
         // SQLite supports online backup via VACUUM INTO or file copy
         // For simplicity, we copy the file (ensuring no corruption)
         let backup_file = backup_dir.join(db_path.file_name().unwrap());
-        
+
         // Use SQLite backup API for consistency (via rusqlite)
         // For Phase 1, we do a simple file copy with WAL handling
         fs::copy(db_path, &backup_file)?;
-        
+
         // Also backup WAL and SHM files if they exist
         let wal_path = db_path.with_extension("db-wal");
         let shm_path = db_path.with_extension("db-shm");
@@ -151,10 +157,10 @@ impl SnapshotManager {
         let timestamp = Utc::now();
         let backup_dir = self.store_path.join(&id);
         fs::create_dir_all(&backup_dir)?;
-        
+
         let backup_file = backup_dir.join(format!("{}.bin", name));
         fs::write(&backup_file, memory_data)?;
-        
+
         Ok(Snapshot {
             id,
             original_path: PathBuf::from(format!("memory://{}", name)),
@@ -174,15 +180,15 @@ impl SnapshotManager {
         let timestamp = Utc::now();
         let backup_dir = self.store_path.join(&id);
         fs::create_dir_all(&backup_dir)?;
-        
+
         let mut snapshot_components = Vec::new();
-        
+
         for component in components {
             let component_backup_dir = backup_dir.join(&component.name);
             fs::create_dir_all(&component_backup_dir)?;
-            
+
             let size_bytes = self.backup_component(component, &component_backup_dir)?;
-            
+
             snapshot_components.push(SnapshotComponent {
                 name: component.name.clone(),
                 component_type: component.component_type.clone(),
@@ -190,7 +196,7 @@ impl SnapshotManager {
                 size_bytes,
             });
         }
-        
+
         // Write metadata
         let metadata_path = backup_dir.join("snapshot_metadata.json");
         let metadata_json = serde_json::to_string_pretty(&metadata)?;
@@ -209,9 +215,15 @@ impl SnapshotManager {
         match component.component_type {
             ComponentType::File | ComponentType::Directory | ComponentType::Config => {
                 if component.path.is_dir() {
-                    copy_dir_recursive(&component.path, &backup_dir.join(component.path.file_name().unwrap()))?;
+                    copy_dir_recursive(
+                        &component.path,
+                        &backup_dir.join(component.path.file_name().unwrap()),
+                    )?;
                 } else {
-                    fs::copy(&component.path, backup_dir.join(component.path.file_name().unwrap()))?;
+                    fs::copy(
+                        &component.path,
+                        backup_dir.join(component.path.file_name().unwrap()),
+                    )?;
                 }
                 Ok(self.calculate_dir_size(backup_dir)?)
             }
@@ -254,9 +266,11 @@ impl SnapshotManager {
     pub fn restore_snapshot(&self, snapshot: &Snapshot) -> Result<()> {
         // Handle memory snapshots differently
         if snapshot.snapshot_type == SnapshotType::Memory {
-            return Err(anyhow::anyhow!("Use restore_memory_snapshot for memory snapshots"));
+            return Err(anyhow::anyhow!(
+                "Use restore_memory_snapshot for memory snapshots"
+            ));
         }
-        
+
         if snapshot.original_path.exists() {
             if snapshot.original_path.is_dir() {
                 fs::remove_dir_all(&snapshot.original_path)?;
@@ -265,8 +279,10 @@ impl SnapshotManager {
             }
         }
 
-        let source = snapshot.backup_path.join(snapshot.original_path.file_name().unwrap());
-        
+        let source = snapshot
+            .backup_path
+            .join(snapshot.original_path.file_name().unwrap());
+
         if source.is_dir() {
             copy_dir_recursive(&source, &snapshot.original_path)?;
         } else {
@@ -281,7 +297,7 @@ impl SnapshotManager {
         if snapshot.snapshot_type != SnapshotType::Memory {
             return Err(anyhow::anyhow!("Snapshot is not a memory snapshot"));
         }
-        
+
         // Find the .bin file in the backup directory
         for entry in fs::read_dir(&snapshot.backup_path)? {
             let entry = entry?;
@@ -289,40 +305,40 @@ impl SnapshotManager {
                 return Ok(fs::read(entry.path())?);
             }
         }
-        
+
         Err(anyhow::anyhow!("No .bin file found in memory snapshot"))
     }
-    
+
     /// Delete a snapshot to free space
     pub fn delete_snapshot(&self, snapshot: &Snapshot) -> Result<()> {
         fs::remove_dir_all(&snapshot.backup_path)?;
         Ok(())
     }
-    
+
     /// List all snapshots
     pub fn list_snapshots(&self) -> Result<Vec<Snapshot>> {
         let mut snapshots = Vec::new();
-        
+
         if !self.store_path.exists() {
             return Ok(snapshots);
         }
-        
+
         for entry in fs::read_dir(&self.store_path)? {
             let entry = entry?;
             let metadata_path = entry.path().join("snapshot_metadata.json");
-            
+
             // Try to read snapshot metadata if it exists
             if metadata_path.exists() {
                 // This is a system snapshot, skip for now
                 continue;
             }
-            
+
             // Individual component snapshot
             let backup_dir = entry.path();
             if let Some(original_files) = fs::read_dir(&backup_dir)?.next() {
                 let original_file = original_files?.path();
                 let id = entry.file_name().to_string_lossy().to_string();
-                
+
                 // Try to determine snapshot type
                 let snapshot_type = if original_file.extension().map_or(false, |ext| ext == "db") {
                     SnapshotType::Database
@@ -333,7 +349,7 @@ impl SnapshotManager {
                 } else {
                     SnapshotType::File
                 };
-                
+
                 snapshots.push(Snapshot {
                     id,
                     original_path: original_file.clone(),
@@ -343,17 +359,17 @@ impl SnapshotManager {
                 });
             }
         }
-        
+
         Ok(snapshots)
     }
-    
+
     /// Get snapshot by ID
     pub fn get_snapshot(&self, id: &str) -> Result<Option<Snapshot>> {
         let snapshot_dir = self.store_path.join(id);
         if !snapshot_dir.exists() {
             return Ok(None);
         }
-        
+
         // Read snapshot metadata
         let metadata_path = snapshot_dir.join("snapshot.json");
         if metadata_path.exists() {
@@ -361,7 +377,7 @@ impl SnapshotManager {
             let snapshot: Snapshot = serde_json::from_str(&content)?;
             return Ok(Some(snapshot));
         }
-        
+
         Ok(None)
     }
 }

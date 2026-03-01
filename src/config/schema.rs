@@ -2265,7 +2265,13 @@ impl Default for SyscallAnomalyConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            baseline_syscalls: vec!["read".into(), "write".into(), "openat".into(), "close".into(), "execve".into()], // Minimal default for now
+            baseline_syscalls: vec![
+                "read".into(),
+                "write".into(),
+                "openat".into(),
+                "close".into(),
+                "execve".into(),
+            ], // Minimal default for now
             log_path: default_log_path(),
             alert_on_unknown_syscall: false,
             strict_mode: false,
@@ -2277,11 +2283,21 @@ impl Default for SyscallAnomalyConfig {
     }
 }
 
-fn default_log_path() -> String { "syscall_anomalies.jsonl".into() }
-fn default_max_denied() -> u32 { 10 }
-fn default_max_total() -> u32 { 1000 }
-fn default_alert_cooldown() -> u64 { 60 }
-fn default_max_alerts() -> u32 { 10 }
+fn default_log_path() -> String {
+    "syscall_anomalies.jsonl".into()
+}
+fn default_max_denied() -> u32 {
+    10
+}
+fn default_max_total() -> u32 {
+    1000
+}
+fn default_alert_cooldown() -> u64 {
+    60
+}
+fn default_max_alerts() -> u32 {
+    10
+}
 
 // ── Reliability / supervision ────────────────────────────────────
 

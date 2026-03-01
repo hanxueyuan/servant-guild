@@ -234,7 +234,10 @@ impl RollbackManager {
         description: String,
     ) -> Result<RollbackPoint> {
         let id = uuid::Uuid::new_v4().to_string();
-        info!("Creating rollback point '{}' with type {:?}", id, point_type);
+        info!(
+            "Creating rollback point '{}' with type {:?}",
+            id, point_type
+        );
 
         let mut point = RollbackPoint::new(id.clone(), point_type, description);
 
@@ -275,7 +278,8 @@ impl RollbackManager {
         info!("Starting rollback to point '{}'", point_id);
 
         // Get rollback point
-        let point = self.get_rollback_point(point_id.clone())
+        let point = self
+            .get_rollback_point(point_id.clone())
             .context("Rollback point not found")?;
 
         // Create recovery plan
@@ -429,7 +433,10 @@ impl RollbackManager {
         let mut success = true;
 
         for step in &plan.steps {
-            debug!("Executing recovery step {}: {}", step.step_number, step.description);
+            debug!(
+                "Executing recovery step {}: {}",
+                step.step_number, step.description
+            );
 
             match step.step_type {
                 RecoveryStepType::StopServices => {
@@ -446,16 +453,30 @@ impl RollbackManager {
                 RecoveryStepType::RollbackModules => {
                     // Rollback modules
                     for (module_name, version) in &plan.target_point.module_versions {
-                        match self.hot_swap.rollback(module_name.clone(), version.clone(), "Recovery rollback".to_string()).await {
+                        match self
+                            .hot_swap
+                            .rollback(
+                                module_name.clone(),
+                                version.clone(),
+                                "Recovery rollback".to_string(),
+                            )
+                            .await
+                        {
                             Ok(_) => {
                                 modules_rolled_back.push(module_name.clone());
                             }
                             Err(e) => {
                                 if step.is_critical {
                                     success = false;
-                                    errors.push(format!("Failed to rollback module '{}': {}", module_name, e));
+                                    errors.push(format!(
+                                        "Failed to rollback module '{}': {}",
+                                        module_name, e
+                                    ));
                                 } else {
-                                    warnings.push(format!("Failed to rollback module '{}': {}", module_name, e));
+                                    warnings.push(format!(
+                                        "Failed to rollback module '{}': {}",
+                                        module_name, e
+                                    ));
                                 }
                             }
                         }
@@ -537,7 +558,9 @@ impl RollbackManager {
     /// Create state snapshot
     async fn create_state_snapshot(&self) -> Result<PathBuf> {
         let snapshot_id = uuid::Uuid::new_v4().to_string();
-        let snapshot_path = self.backup_config.storage_path
+        let snapshot_path = self
+            .backup_config
+            .storage_path
             .join("snapshots")
             .join(format!("state_{}.json", snapshot_id));
 
@@ -583,7 +606,10 @@ mod tests {
             RollbackPointType::ManualCheckpoint,
             "Test checkpoint".to_string(),
         )
-        .with_module_version("test-module".to_string(), ModuleVersion::new("1.0.0".to_string()))
+        .with_module_version(
+            "test-module".to_string(),
+            ModuleVersion::new("1.0.0".to_string()),
+        )
         .with_tag("important".to_string());
 
         assert_eq!(point.id, "test-id");

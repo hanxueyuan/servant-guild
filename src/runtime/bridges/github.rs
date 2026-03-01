@@ -204,10 +204,22 @@ pub trait GitHubBridge: Send + Sync {
     async fn get_file(&self, path: String, branch: Option<String>) -> Result<GitHubFile>;
 
     /// Update file content
-    async fn update_file(&self, path: String, content: String, message: String, branch: Option<String>) -> Result<()>;
+    async fn update_file(
+        &self,
+        path: String,
+        content: String,
+        message: String,
+        branch: Option<String>,
+    ) -> Result<()>;
 
     /// Create a pull request
-    async fn create_pr(&self, title: String, body: String, head: String, base: String) -> Result<GitHubPullRequest>;
+    async fn create_pr(
+        &self,
+        title: String,
+        body: String,
+        head: String,
+        base: String,
+    ) -> Result<GitHubPullRequest>;
 
     /// List pull requests
     async fn list_prs(&self, state: Option<String>) -> Result<Vec<GitHubPullRequest>>;
@@ -219,13 +231,29 @@ pub trait GitHubBridge: Send + Sync {
     async fn merge_pr(&self, pr_number: u64, method: Option<String>) -> Result<()>;
 
     /// Create a release
-    async fn create_release(&self, tag_name: String, name: String, body: String, draft: bool, prerelease: bool) -> Result<GitHubRelease>;
+    async fn create_release(
+        &self,
+        tag_name: String,
+        name: String,
+        body: String,
+        draft: bool,
+        prerelease: bool,
+    ) -> Result<GitHubRelease>;
 
     /// Upload asset to release
-    async fn upload_release_asset(&self, release_id: u64, asset_name: String, asset_path: PathBuf) -> Result<GitHubAsset>;
+    async fn upload_release_asset(
+        &self,
+        release_id: u64,
+        asset_name: String,
+        asset_path: PathBuf,
+    ) -> Result<GitHubAsset>;
 
     /// List commits
-    async fn list_commits(&self, branch: Option<String>, limit: Option<u32>) -> Result<Vec<GitHubCommit>>;
+    async fn list_commits(
+        &self,
+        branch: Option<String>,
+        limit: Option<u32>,
+    ) -> Result<Vec<GitHubCommit>>;
 }
 
 /// Implementation of GitHub Bridge
@@ -273,8 +301,7 @@ impl GitHubBridge for GitHubBridgeImpl {
 
         // Create parent directory if it doesn't exist
         if let Some(parent) = full_path.parent() {
-            std::fs::create_dir_all(parent)
-                .context("Failed to create parent directory")?;
+            std::fs::create_dir_all(parent).context("Failed to create parent directory")?;
         }
 
         // Use git command for cloning
@@ -354,13 +381,7 @@ impl GitHubBridge for GitHubBridgeImpl {
 
         // Commit
         let commit_output = std::process::Command::new("git")
-            .args([
-                "-C",
-                repo_path.to_str().unwrap(),
-                "commit",
-                "-m",
-                &message,
-            ])
+            .args(["-C", repo_path.to_str().unwrap(), "commit", "-m", &message])
             .output()
             .context("Failed to git commit")?;
 
@@ -445,12 +466,7 @@ impl GitHubBridge for GitHubBridgeImpl {
         };
 
         let output = std::process::Command::new("git")
-            .args([
-                "-C",
-                repo_path.to_str().unwrap(),
-                "branch",
-                "-r",
-            ])
+            .args(["-C", repo_path.to_str().unwrap(), "branch", "-r"])
             .output()
             .context("Failed to list branches")?;
 
@@ -538,7 +554,13 @@ impl GitHubBridge for GitHubBridgeImpl {
         })
     }
 
-    async fn update_file(&self, path: String, content: String, message: String, branch: Option<String>) -> Result<()> {
+    async fn update_file(
+        &self,
+        path: String,
+        content: String,
+        message: String,
+        branch: Option<String>,
+    ) -> Result<()> {
         let repo_path = if let Some(ref local_path) = self.local_repo_path {
             local_path.join(&self.credentials.repo)
         } else {
@@ -548,12 +570,7 @@ impl GitHubBridge for GitHubBridgeImpl {
         // Switch to branch if specified
         if let Some(branch_name) = branch {
             let _ = std::process::Command::new("git")
-                .args([
-                    "-C",
-                    repo_path.to_str().unwrap(),
-                    "checkout",
-                    &branch_name,
-                ])
+                .args(["-C", repo_path.to_str().unwrap(), "checkout", &branch_name])
                 .output();
         }
 
@@ -567,12 +584,19 @@ impl GitHubBridge for GitHubBridgeImpl {
         std::fs::write(&file_path, content)?;
 
         // Commit changes
-        self.commit(repo_path.parent().unwrap().to_path_buf(), message, None).await?;
+        self.commit(repo_path.parent().unwrap().to_path_buf(), message, None)
+            .await?;
 
         Ok(())
     }
 
-    async fn create_pr(&self, title: String, body: String, head: String, base: String) -> Result<GitHubPullRequest> {
+    async fn create_pr(
+        &self,
+        title: String,
+        body: String,
+        head: String,
+        base: String,
+    ) -> Result<GitHubPullRequest> {
         // This would use GitHub API to create PR
         // For now, return a mock PR
         Ok(GitHubPullRequest {
@@ -605,7 +629,14 @@ impl GitHubBridge for GitHubBridgeImpl {
         Ok(())
     }
 
-    async fn create_release(&self, tag_name: String, name: String, body: String, draft: bool, prerelease: bool) -> Result<GitHubRelease> {
+    async fn create_release(
+        &self,
+        tag_name: String,
+        name: String,
+        body: String,
+        draft: bool,
+        prerelease: bool,
+    ) -> Result<GitHubRelease> {
         // This would use GitHub API to create release
         Ok(GitHubRelease {
             tag_name,
@@ -620,7 +651,12 @@ impl GitHubBridge for GitHubBridgeImpl {
         })
     }
 
-    async fn upload_release_asset(&self, _release_id: u64, _asset_name: String, _asset_path: PathBuf) -> Result<GitHubAsset> {
+    async fn upload_release_asset(
+        &self,
+        _release_id: u64,
+        _asset_name: String,
+        _asset_path: PathBuf,
+    ) -> Result<GitHubAsset> {
         // This would use GitHub API to upload asset
         Ok(GitHubAsset {
             name: "asset.wasm".to_string(),
@@ -630,7 +666,11 @@ impl GitHubBridge for GitHubBridgeImpl {
         })
     }
 
-    async fn list_commits(&self, _branch: Option<String>, _limit: Option<u32>) -> Result<Vec<GitHubCommit>> {
+    async fn list_commits(
+        &self,
+        _branch: Option<String>,
+        _limit: Option<u32>,
+    ) -> Result<Vec<GitHubCommit>> {
         // This would use GitHub API to list commits
         Ok(Vec::new())
     }
@@ -642,15 +682,23 @@ mod tests {
 
     #[test]
     fn test_github_credentials() {
-        let creds = GitHubCredentials::new("test-pat".to_string(), "owner".to_string(), "repo".to_string());
+        let creds = GitHubCredentials::new(
+            "test-pat".to_string(),
+            "owner".to_string(),
+            "repo".to_string(),
+        );
         assert_eq!(creds.full_repo_name(), "owner/repo");
         assert_eq!(creds.api_url(), "https://api.github.com");
     }
 
     #[test]
     fn test_github_credentials_with_base_url() {
-        let creds = GitHubCredentials::new("test-pat".to_string(), "owner".to_string(), "repo".to_string())
-            .with_base_url("https://github.enterprise.com".to_string());
+        let creds = GitHubCredentials::new(
+            "test-pat".to_string(),
+            "owner".to_string(),
+            "repo".to_string(),
+        )
+        .with_base_url("https://github.enterprise.com".to_string());
         assert_eq!(creds.api_url(), "https://github.enterprise.com");
     }
 }

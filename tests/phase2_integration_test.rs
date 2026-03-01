@@ -8,14 +8,14 @@
 //! 5. Contractor manages resources and configuration
 
 use zeroclaw::{
+    consensus::{ConsensusEngine, Constitution, DecisionType, Vote},
     guild::{Guild, GuildConfig, GuildStatus},
-    consensus::{ConsensusEngine, DecisionType, Vote, Constitution},
-    servants::{ServantRole, ServantStatus, ServantTask, ServantResult},
     safety::{AuditLogger, TransactionManager},
+    servants::{ServantResult, ServantRole, ServantStatus, ServantTask},
 };
 
-use std::sync::Arc;
 use parking_lot::RwLock;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn test_multi_agent_task_execution() {
@@ -31,7 +31,12 @@ async fn test_multi_agent_task_execution() {
     assert!(statuses.len() == 5, "All 5 servants should be present");
 
     for (role, status) in statuses {
-        assert_eq!(status, ServantStatus::Ready, "Servant {:?} should be ready", role);
+        assert_eq!(
+            status,
+            ServantStatus::Ready,
+            "Servant {:?} should be ready",
+            role
+        );
     }
 
     println!("✓ All servants started successfully");
@@ -65,19 +70,44 @@ async fn test_consensus_proposal_workflow() {
 
     // Cast votes (3 yes, 2 no)
     engine
-        .cast_vote(&proposal.id, "servant_0".to_string(), Vote::Approve, "Good idea".to_string())
+        .cast_vote(
+            &proposal.id,
+            "servant_0".to_string(),
+            Vote::Approve,
+            "Good idea".to_string(),
+        )
         .expect("Failed to cast vote");
     engine
-        .cast_vote(&proposal.id, "servant_1".to_string(), Vote::Approve, "Agreed".to_string())
+        .cast_vote(
+            &proposal.id,
+            "servant_1".to_string(),
+            Vote::Approve,
+            "Agreed".to_string(),
+        )
         .expect("Failed to cast vote");
     engine
-        .cast_vote(&proposal.id, "servant_2".to_string(), Vote::Approve, "Support".to_string())
+        .cast_vote(
+            &proposal.id,
+            "servant_2".to_string(),
+            Vote::Approve,
+            "Support".to_string(),
+        )
         .expect("Failed to cast vote");
     engine
-        .cast_vote(&proposal.id, "servant_3".to_string(), Vote::Reject, "Concerned".to_string())
+        .cast_vote(
+            &proposal.id,
+            "servant_3".to_string(),
+            Vote::Reject,
+            "Concerned".to_string(),
+        )
         .expect("Failed to cast vote");
     engine
-        .cast_vote(&proposal.id, "servant_4".to_string(), Vote::Reject, "Need more info".to_string())
+        .cast_vote(
+            &proposal.id,
+            "servant_4".to_string(),
+            Vote::Reject,
+            "Need more info".to_string(),
+        )
         .expect("Failed to cast vote");
 
     println!("✓ Cast 5 votes");
@@ -115,7 +145,10 @@ async fn test_warden_safety_check() {
 
     // Risky actions should be blocked
     for (action, target) in risky_actions {
-        println!("⚠ High-risk action: {} on {} - Would be blocked", action, target);
+        println!(
+            "⚠ High-risk action: {} on {} - Would be blocked",
+            action, target
+        );
     }
 
     // Safe actions should be allowed
@@ -249,8 +282,10 @@ async fn test_doubao_capabilities() {
     assert!(!caps.vision);
     assert!(!caps.streaming);
 
-    println!("✓ Doubao capabilities verified: native_tool_calling={}, vision={}, streaming={}",
-        caps.native_tool_calling, caps.vision, caps.streaming);
+    println!(
+        "✓ Doubao capabilities verified: native_tool_calling={}, vision={}, streaming={}",
+        caps.native_tool_calling, caps.vision, caps.streaming
+    );
 }
 
 #[tokio::test]
@@ -262,7 +297,11 @@ async fn test_doubao_provider_factory() {
 
     for alias in aliases {
         let provider = providers::create_provider(alias, Some("test-key"));
-        assert!(provider.is_ok(), "Failed to create provider for alias: {}", alias);
+        assert!(
+            provider.is_ok(),
+            "Failed to create provider for alias: {}",
+            alias
+        );
         println!("✓ Provider created for alias: {}", alias);
     }
 }

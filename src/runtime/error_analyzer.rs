@@ -161,7 +161,7 @@ impl ErrorAnalyzer {
     /// Create an error analyzer with LLM support
     pub fn with_llm(llm: Option<Arc<dyn LLMProvider>>) -> Self {
         let patterns = Self::build_patterns();
-        
+
         Self {
             patterns,
             llm,
@@ -181,7 +181,7 @@ impl ErrorAnalyzer {
                 category: FixCategory::TraitBound,
                 fix_template: Some("Add impl {} for the type or use a type that already implements it.".to_string()),
             },
-            
+
             // E0433: failed to resolve
             ErrorPattern {
                 id: "e0433-unresolved".to_string(),
@@ -190,7 +190,7 @@ impl ErrorAnalyzer {
                 category: FixCategory::Import,
                 fix_template: Some("Add the missing use declaration or import.".to_string()),
             },
-            
+
             // E0308: mismatched types
             ErrorPattern {
                 id: "e0308-type-mismatch".to_string(),
@@ -199,7 +199,7 @@ impl ErrorAnalyzer {
                 category: FixCategory::TypeMismatch,
                 fix_template: None,
             },
-            
+
             // E0599: no method named found
             ErrorPattern {
                 id: "e0599-no-method".to_string(),
@@ -208,7 +208,7 @@ impl ErrorAnalyzer {
                 category: FixCategory::MissingImpl,
                 fix_template: Some("The method may be missing from the trait impl or requires different type parameters.".to_string()),
             },
-            
+
             // E0502: cannot borrow as mutable
             ErrorPattern {
                 id: "e0502-borrow-mut".to_string(),
@@ -217,7 +217,7 @@ impl ErrorAnalyzer {
                 category: FixCategory::BorrowCheck,
                 fix_template: None,
             },
-            
+
             // E0382: use of moved value
             ErrorPattern {
                 id: "e0382-moved-value".to_string(),
@@ -226,7 +226,7 @@ impl ErrorAnalyzer {
                 category: FixCategory::BorrowCheck,
                 fix_template: Some("Consider cloning the value or using a reference.".to_string()),
             },
-            
+
             // E0106: missing lifetime specifier
             ErrorPattern {
                 id: "e0106-lifetime".to_string(),
@@ -235,7 +235,7 @@ impl ErrorAnalyzer {
                 category: FixCategory::Lifetime,
                 fix_template: None,
             },
-            
+
             // E0275: overflow evaluating the requirement
             ErrorPattern {
                 id: "e0275-overflow".to_string(),
@@ -250,30 +250,32 @@ impl ErrorAnalyzer {
     /// Analyze build output and extract errors
     pub async fn analyze(&self, output: &str) -> Result<Vec<BuildError>> {
         let mut errors = Vec::new();
-        
+
         // Parse error messages
         let error_regex = Regex::new(r"error(?:\[(E\d+)\])?: ([^\n]+)").unwrap();
         let file_regex = Regex::new(r"   --> ([^:]+):(\d+):(\d+)").unwrap();
-        
+
         let lines: Vec<&str> = output.lines().collect();
         let mut i = 0;
-        
+
         while i < lines.len() {
             let line = lines[i];
-            
+
             if let Some(caps) = error_regex.captures(line) {
-                let error_code = caps.get(1)
+                let error_code = caps
+                    .get(1)
                     .map(|m| m.as_str().to_string())
                     .unwrap_or_else(|| "UNKNOWN".to_string());
-                let message = caps.get(2)
+                let message = caps
+                    .get(2)
                     .map(|m| m.as_str().to_string())
                     .unwrap_or_default();
-                
+
                 // Look for file location on next line
                 let mut file = None;
                 let mut line_num = None;
                 let mut column = None;
-                
+
                 if i + 1 < lines.len() {
                     if let Some(file_caps) = file_regex.captures(lines[i + 1]) {
                         file = Some(file_caps.get(1).unwrap().as_str().to_string());
@@ -282,7 +284,7 @@ impl ErrorAnalyzer {
                         i += 1;
                     }
                 }
-                
+
                 // Determine severity
                 let severity = if error_code.starts_with("E") {
                     ErrorSeverity::Error
@@ -291,10 +293,10 @@ impl ErrorAnalyzer {
                 } else {
                     ErrorSeverity::Error
                 };
-                
+
                 // Find matching pattern
                 let suggestion = self.find_suggestion(&error_code, &message);
-                
+
                 errors.push(BuildError {
                     id: format!("err-{}", uuid::Uuid::new_v4()),
                     error_code,
@@ -307,12 +309,12 @@ impl ErrorAnalyzer {
                     related: Vec::new(),
                 });
             }
-            
+
             i += 1;
         }
-        
+
         debug!("Analyzed {} errors from build output", errors.len());
-        
+
         Ok(errors)
     }
 
@@ -343,14 +345,14 @@ impl ErrorAnalyzer {
         context: &BuildContext,
     ) -> Result<Vec<FixSuggestion>> {
         let mut suggestions = Vec::new();
-        
+
         for error in errors {
             // Try pattern-based fixes first
             if let Some(suggestion) = self.generate_pattern_fix(error, context).await? {
                 suggestions.push(suggestion);
                 continue;
             }
-            
+
             // Fall back to LLM-based analysis
             if let Some(ref llm) = self.llm {
                 if let Some(suggestion) = self.generate_llm_fix(error, context, llm).await? {
@@ -358,9 +360,9 @@ impl ErrorAnalyzer {
                 }
             }
         }
-        
+
         info!("Generated {} fix suggestions", suggestions.len());
-        
+
         Ok(suggestions)
     }
 
@@ -371,25 +373,21 @@ impl ErrorAnalyzer {
         context: &BuildContext,
     ) -> Result<Option<FixSuggestion>> {
         // Find matching pattern
-        let pattern = self.patterns.iter().find(|p| {
-            p.error_code == error.error_code && 
-            p.pattern.is_match(&error.message)
-        });
-        
+        let pattern = self
+            .patterns
+            .iter()
+            .find(|p| p.error_code == error.error_code && p.pattern.is_match(&error.message));
+
         if pattern.is_none() {
             return Ok(None);
         }
-        
+
         let pattern = pattern.unwrap();
-        
+
         // Generate fix based on category
         match pattern.category {
-            FixCategory::Import => {
-                self.generate_import_fix(error, context).await
-            }
-            FixCategory::TraitBound => {
-                self.generate_trait_fix(error, context).await
-            }
+            FixCategory::Import => self.generate_import_fix(error, context).await,
+            FixCategory::TraitBound => self.generate_trait_fix(error, context).await,
             _ => Ok(None),
         }
     }
@@ -401,14 +399,15 @@ impl ErrorAnalyzer {
         context: &BuildContext,
     ) -> Result<Option<FixSuggestion>> {
         // Extract missing item from error message
-        let missing_regex = Regex::new(r"use of undeclared (?:crate|module|type|value) `([^`]+)`").unwrap();
-        
+        let missing_regex =
+            Regex::new(r"use of undeclared (?:crate|module|type|value) `([^`]+)`").unwrap();
+
         if let Some(caps) = missing_regex.captures(&error.message) {
             let missing_item = caps.get(1).unwrap().as_str();
-            
+
             // Try to find the correct import path
             let import_path = self.find_import_path(missing_item, context).await?;
-            
+
             if let Some(path) = import_path {
                 return Ok(Some(FixSuggestion {
                     id: format!("fix-{}", uuid::Uuid::new_v4()),
@@ -423,20 +422,16 @@ impl ErrorAnalyzer {
                 }));
             }
         }
-        
+
         Ok(None)
     }
 
     /// Find import path for an item
-    async fn find_import_path(
-        &self,
-        item: &str,
-        context: &BuildContext,
-    ) -> Result<Option<String>> {
+    async fn find_import_path(&self, item: &str, context: &BuildContext) -> Result<Option<String>> {
         // Search in project files
         let search_pattern = format!("use.*{}.*;", item);
         let search_regex = Regex::new(&search_pattern).unwrap();
-        
+
         // Check standard library items
         let std_items = HashMap::from([
             ("Result", "std::result::Result"),
@@ -455,18 +450,18 @@ impl ErrorAnalyzer {
             ("Duration", "std::time::Duration"),
             ("Instant", "std::time::Instant"),
         ]);
-        
+
         if let Some(path) = std_items.get(item) {
             return Ok(Some(path.to_string()));
         }
-        
+
         // Check project modules
         for module in &context.available_modules {
             if module.ends_with(item) || module.contains(&format!("::{}", item)) {
                 return Ok(Some(module.clone()));
             }
         }
-        
+
         Ok(None)
     }
 
@@ -478,16 +473,13 @@ impl ErrorAnalyzer {
     ) -> Result<Option<FixSuggestion>> {
         // Extract trait requirement
         let trait_regex = Regex::new(r"the trait bound `([^`]+)` is not satisfied").unwrap();
-        
+
         if let Some(caps) = trait_regex.captures(&error.message) {
             let trait_req = caps.get(1).unwrap().as_str();
-            
+
             // Parse trait requirement
-            let description = format!(
-                "Add trait implementation or bound: {}",
-                trait_req
-            );
-            
+            let description = format!("Add trait implementation or bound: {}", trait_req);
+
             return Ok(Some(FixSuggestion {
                 id: format!("fix-{}", uuid::Uuid::new_v4()),
                 description,
@@ -500,7 +492,7 @@ impl ErrorAnalyzer {
                 auto_applicable: false,
             }));
         }
-        
+
         Ok(None)
     }
 
@@ -548,7 +540,7 @@ Format your response as JSON:
 
         // Call LLM (simplified - would use actual LLM integration)
         debug!("Would call LLM for error analysis: {}", error.error_code);
-        
+
         // For now, return None
         // In production, this would call the LLM and parse the response
         Ok(None)
@@ -561,45 +553,45 @@ Format your response as JSON:
         project_path: &Path,
     ) -> Result<FixResult> {
         let file_path = project_path.join(&suggestion.file);
-        
+
         if !file_path.exists() {
             bail!("File not found: {:?}", file_path);
         }
-        
+
         // Read file
         let content = fs::read_to_string(&file_path).await?;
         let lines: Vec<&str> = content.lines().collect();
-        
+
         // Apply the fix
         let (start, end) = suggestion.line_range;
         let start_idx = (start as usize).saturating_sub(1);
         let end_idx = (end as usize).min(lines.len()).saturating_sub(1);
-        
+
         // Build new content
         let mut new_lines = Vec::new();
-        
+
         // Add lines before
         for line in lines.iter().take(start_idx) {
             new_lines.push(line.to_string());
         }
-        
+
         // Add fix (for imports, prepend at beginning)
         if suggestion.category == FixCategory::Import {
             new_lines.push(suggestion.replacement.clone());
             new_lines.push(String::new());
         }
-        
+
         // Add remaining lines
         for line in lines.iter().skip(start_idx) {
             new_lines.push(line.to_string());
         }
-        
+
         // Write file
         let new_content = new_lines.join("\n");
         fs::write(&file_path, new_content).await?;
-        
+
         info!("Applied fix to {:?}", file_path);
-        
+
         Ok(FixResult {
             success: true,
             file: file_path.display().to_string(),
@@ -626,10 +618,10 @@ Format your response as JSON:
             error_before: error_before.to_string(),
             error_after: error_after.map(|s| s.to_string()),
         };
-        
+
         // Update history
         self.fix_history.write().await.push(record);
-        
+
         // Update success rates
         let mut rates = self.success_rates.write().await;
         let entry = rates.entry(suggestion.category).or_insert(0.0);
@@ -702,7 +694,7 @@ impl AutoFixer {
     ) -> Result<AutoFixResult> {
         // Analyze errors
         let errors = self.analyzer.analyze(output).await?;
-        
+
         if errors.is_empty() {
             return Ok(AutoFixResult {
                 errors_found: 0,
@@ -712,14 +704,14 @@ impl AutoFixer {
                 remaining_errors: Vec::new(),
             });
         }
-        
+
         // Generate fixes
         let suggestions = self.analyzer.suggest_fixes(&errors, context).await?;
-        
+
         let mut applied = 0;
         let mut successful = 0;
         let mut remaining = Vec::new();
-        
+
         for suggestion in suggestions.iter().take(self.max_fixes) {
             if suggestion.auto_applicable && suggestion.confidence >= self.min_confidence {
                 match self.analyzer.apply_fix(suggestion, project_path).await {
@@ -737,12 +729,14 @@ impl AutoFixer {
                 remaining.push(suggestion.clone());
             }
         }
-        
+
         info!(
             "Auto-fix: {}/{} applied, {} successful",
-            applied, suggestions.len(), successful
+            applied,
+            suggestions.len(),
+            successful
         );
-        
+
         Ok(AutoFixResult {
             errors_found: errors.len(),
             fixes_generated: suggestions.len(),
@@ -775,7 +769,7 @@ mod tests {
     #[tokio::test]
     async fn test_analyze_errors() {
         let analyzer = ErrorAnalyzer::new();
-        
+
         let output = r#"
 error[E0433]: failed to resolve: use of undeclared crate 'serde'
   --> src/main.rs:10:5
@@ -786,9 +780,9 @@ error[E0433]: failed to resolve: use of undeclared crate 'serde'
 error[E0277]: the trait bound `MyStruct: Clone` is not satisfied
   --> src/main.rs:20:5
 "#;
-        
+
         let errors = analyzer.analyze(output).await.unwrap();
-        
+
         assert_eq!(errors.len(), 2);
         assert_eq!(errors[0].error_code, "E0433");
         assert_eq!(errors[1].error_code, "E0277");
@@ -797,7 +791,7 @@ error[E0277]: the trait bound `MyStruct: Clone` is not satisfied
     #[tokio::test]
     async fn test_generate_import_fix() {
         let analyzer = ErrorAnalyzer::new();
-        
+
         let error = BuildError {
             id: "test-1".to_string(),
             error_code: "E0433".to_string(),
@@ -809,11 +803,14 @@ error[E0277]: the trait bound `MyStruct: Clone` is not satisfied
             suggestion: None,
             related: Vec::new(),
         };
-        
+
         let context = BuildContext::default();
-        
-        let fix = analyzer.generate_import_fix(&error, &context).await.unwrap();
-        
+
+        let fix = analyzer
+            .generate_import_fix(&error, &context)
+            .await
+            .unwrap();
+
         assert!(fix.is_some());
         let fix = fix.unwrap();
         assert_eq!(fix.category, FixCategory::Import);
@@ -823,11 +820,13 @@ error[E0277]: the trait bound `MyStruct: Clone` is not satisfied
     #[test]
     fn test_error_patterns() {
         let patterns = ErrorAnalyzer::build_patterns();
-        
+
         assert!(!patterns.is_empty());
-        
+
         // Test E0277 pattern
         let pattern = patterns.iter().find(|p| p.error_code == "E0277").unwrap();
-        assert!(pattern.pattern.is_match("the trait bound `Clone` is not satisfied"));
+        assert!(pattern
+            .pattern
+            .is_match("the trait bound `Clone` is not satisfied"));
     }
 }

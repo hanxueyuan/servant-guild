@@ -39,7 +39,7 @@ pub enum AuditEventType {
     AuthFailure,
     PolicyViolation,
     SecurityEvent,
-    ServantAction, // New for ServantGuild
+    ServantAction,  // New for ServantGuild
     Custom(String), // For custom event types
 }
 
@@ -120,15 +120,19 @@ impl AuditEvent {
     /// Compute the hash of this event based on its content and previous hash
     pub fn compute_hash(&self) -> String {
         let mut hasher = Sha256::new();
-        
+
         // Include previous hash for chain integrity
         hasher.update(self.prev_hash.as_bytes());
-        
+
         // Include all event data for integrity
         hasher.update(self.timestamp.to_rfc3339().as_bytes());
         hasher.update(self.event_id.as_bytes());
-        hasher.update(serde_json::to_string(&self.event_type).unwrap_or_default().as_bytes());
-        
+        hasher.update(
+            serde_json::to_string(&self.event_type)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+
         if let Some(ref actor) = self.actor {
             hasher.update(&actor.channel);
             if let Some(ref user_id) = actor.user_id {
@@ -138,7 +142,7 @@ impl AuditEvent {
                 hasher.update(agent_id.as_bytes());
             }
         }
-        
+
         if let Some(ref action) = self.action {
             if let Some(ref cmd) = action.command {
                 hasher.update(cmd.as_bytes());
@@ -147,7 +151,7 @@ impl AuditEvent {
                 hasher.update(resource.as_bytes());
             }
         }
-        
+
         format!("{:x}", hasher.finalize())
     }
 
@@ -178,7 +182,7 @@ impl AuditEvent {
         });
         self
     }
-    
+
     /// Set the agent actor
     pub fn with_agent(mut self, agent_id: String) -> Self {
         self.actor = Some(Actor {
@@ -269,17 +273,18 @@ impl AuditLogger {
     /// Create a new audit logger and initialize hash chain
     pub fn new(config: AuditConfig, zeroclaw_dir: PathBuf) -> Result<Self> {
         let log_path = zeroclaw_dir.join(&config.log_path);
-        
+
         // Ensure log directory exists
         if let Some(parent) = log_path.parent() {
             if !parent.exists() {
                 std::fs::create_dir_all(parent)?;
             }
         }
-        
+
         // Load last hash from existing log if available
-        let last_hash = Self::load_last_hash(&log_path).unwrap_or_else(|_| GENESIS_HASH.to_string());
-        
+        let last_hash =
+            Self::load_last_hash(&log_path).unwrap_or_else(|_| GENESIS_HASH.to_string());
+
         Ok(Self {
             log_path,
             config,
@@ -293,16 +298,16 @@ impl AuditLogger {
         if !log_path.exists() {
             return Ok(GENESIS_HASH.to_string());
         }
-        
+
         let file = File::open(log_path)?;
         let reader = BufReader::new(file);
-        
+
         // Read the last line
         let last_line = reader.lines().last().transpose()?.unwrap_or_default();
         if last_line.is_empty() {
             return Ok(GENESIS_HASH.to_string());
         }
-        
+
         let event: AuditEvent = serde_json::from_str(&last_line)?;
         Ok(event.hash)
     }
@@ -318,9 +323,7 @@ impl AuditLogger {
 
         // Get previous hash and compute this event's hash
         let prev_hash = self.last_hash.lock().clone();
-        let event_with_hash = event.clone()
-            .with_prev_hash(prev_hash)
-            .finalize();
+        let event_with_hash = event.clone().with_prev_hash(prev_hash).finalize();
 
         // Serialize and write
         let line = serde_json::to_string(&event_with_hash)?;
@@ -397,13 +400,13 @@ impl AuditLogger {
 
         let rotated = format!("{}.1.log", self.log_path.display());
         std::fs::rename(&self.log_path, &rotated)?;
-        
+
         // Reset hash chain for new log file
         *self.last_hash.lock() = GENESIS_HASH.to_string();
-        
+
         Ok(())
     }
-    
+
     /// Verify the integrity of the audit log chain
     pub fn verify_chain(&self) -> Result<ChainVerificationResult> {
         if !self.log_path.exists() {
@@ -413,48 +416,56 @@ impl AuditLogger {
                 errors: vec![],
             });
         }
-        
+
         let file = File::open(&self.log_path)?;
         let reader = BufReader::new(file);
-        
+
         let mut prev_hash = GENESIS_HASH.to_string();
         let mut total_events = 0;
         let mut errors = vec![];
-        
+
         for (line_num, line_result) in reader.lines().enumerate() {
             let line = line_result?;
             if line.is_empty() {
                 continue;
             }
-            
+
             match serde_json::from_str::<AuditEvent>(&line) {
                 Ok(event) => {
                     // Verify previous hash matches
                     if event.prev_hash != prev_hash {
                         errors.push(format!(
                             "Line {}: Hash chain broken. Expected prev_hash={}, got {}",
-                            line_num + 1, prev_hash, event.prev_hash
+                            line_num + 1,
+                            prev_hash,
+                            event.prev_hash
                         ));
                     }
-                    
+
                     // Verify event hash is correct
                     let computed_hash = event.compute_hash();
                     if event.hash != computed_hash {
                         errors.push(format!(
                             "Line {}: Event hash mismatch. Expected {}, got {}",
-                            line_num + 1, computed_hash, event.hash
+                            line_num + 1,
+                            computed_hash,
+                            event.hash
                         ));
                     }
-                    
+
                     prev_hash = event.hash.clone();
                     total_events += 1;
                 }
                 Err(e) => {
-                    errors.push(format!("Line {}: Failed to parse event: {}", line_num + 1, e));
+                    errors.push(format!(
+                        "Line {}: Failed to parse event: {}",
+                        line_num + 1,
+                        e
+                    ));
                 }
             }
         }
-        
+
         Ok(ChainVerificationResult {
             valid: errors.is_empty(),
             total_events,
@@ -477,7 +488,11 @@ pub struct ChainVerificationResult {
 impl std::fmt::Display for ChainVerificationResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.valid {
-            write!(f, "Audit log chain valid: {} events verified", self.total_events)
+            write!(
+                f,
+                "Audit log chain valid: {} events verified",
+                self.total_events
+            )
         } else {
             write!(
                 f,
@@ -500,7 +515,7 @@ mod tests {
             .with_actor("test".to_string(), None, None)
             .with_prev_hash(GENESIS_HASH.to_string())
             .finalize();
-        
+
         assert!(!event.hash.is_empty());
         assert_eq!(event.prev_hash, GENESIS_HASH);
     }
@@ -510,19 +525,18 @@ mod tests {
         let dir = tempdir().unwrap();
         let config = AuditConfig::default();
         let logger = AuditLogger::new(config, dir.path().to_path_buf()).unwrap();
-        
+
         // Log multiple events
         for i in 0..5 {
-            let event = AuditEvent::new(AuditEventType::CommandExecution)
-                .with_action(
-                    format!("test_command_{}", i),
-                    "low".to_string(),
-                    true,
-                    true,
-                );
+            let event = AuditEvent::new(AuditEventType::CommandExecution).with_action(
+                format!("test_command_{}", i),
+                "low".to_string(),
+                true,
+                true,
+            );
             logger.log(&event).unwrap();
         }
-        
+
         // Verify chain
         let result = logger.verify_chain().unwrap();
         assert!(result.valid);

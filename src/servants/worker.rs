@@ -7,15 +7,15 @@
 //! - Handling external API calls
 //! - Reporting progress to Coordinator
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::{
-    Servant, ServantId, ServantRole, ServantStatus, ServantTask, ServantResult, ServantError,
+    Servant, ServantError, ServantId, ServantResult, ServantRole, ServantStatus, ServantTask,
 };
 use crate::consensus::{ConsensusEngine, Vote};
 
@@ -44,18 +44,18 @@ impl Tool {
             risk_level: 1,
         }
     }
-    
+
     pub fn with_parameters(mut self, schema: serde_json::Value) -> Self {
         self.parameters_schema = schema;
         self
     }
-    
+
     pub fn requires_approval(mut self) -> Self {
         self.requires_approval = true;
         self.risk_level = 7;
         self
     }
-    
+
     pub fn with_risk_level(mut self, level: u8) -> Self {
         self.risk_level = level.min(10);
         self
@@ -91,7 +91,7 @@ impl ToolResult {
             retry_count: 0,
         }
     }
-    
+
     /// Create a failed result
     pub fn failure(tool_name: String, error: String, duration_ms: u64) -> Self {
         Self {
@@ -103,13 +103,13 @@ impl ToolResult {
             retry_count: 0,
         }
     }
-    
+
     /// Check if this error is retryable
     pub fn is_retryable(&self) -> bool {
         if self.success {
             return false;
         }
-        
+
         match self.error.as_ref().map(|e| e.as_str()) {
             Some(e) if e.contains("timeout") => true,
             Some(e) if e.contains("temporary") => true,
@@ -191,18 +191,18 @@ impl Worker {
             current_task: RwLock::new(None),
             execution_history: RwLock::new(Vec::new()),
         };
-        
+
         // Register default tools
         worker.register_default_tools();
         worker
     }
-    
+
     /// Set the consensus engine
     pub fn with_consensus(mut self, consensus: Arc<ConsensusEngine>) -> Self {
         self.consensus = Some(consensus);
         self
     }
-    
+
     /// Register default tools
     fn register_default_tools(&self) {
         let tools = vec![
@@ -265,7 +265,7 @@ impl Worker {
                     "required": ["path"]
                 }))
                 .with_risk_level(1),
-            
+
             // Shell/Execution Tools
             Tool::new("run_command".to_string(), "Execute a shell command".to_string())
                 .with_parameters(serde_json::json!({
@@ -278,7 +278,7 @@ impl Worker {
                 }))
                 .with_risk_level(7)
                 .requires_approval(),
-            
+
             // Network Tools
             Tool::new("http_request".to_string(), "Make an HTTP request".to_string())
                 .with_parameters(serde_json::json!({
@@ -290,7 +290,7 @@ impl Worker {
                     "required": ["url"]
                 }))
                 .with_risk_level(4),
-            
+
             // Code Analysis Tools
             Tool::new("analyze_code".to_string(), "Analyze code for issues".to_string())
                 .with_parameters(serde_json::json!({
@@ -302,19 +302,19 @@ impl Worker {
                 }))
                 .with_risk_level(1),
         ];
-        
+
         let mut registered = self.tools.write();
         for tool in tools {
             registered.insert(tool.name.clone(), tool);
             println!("[Worker] Registered tool: {}", tool.name);
         }
     }
-    
+
     /// Register a custom tool
     pub fn register_tool(&self, tool: Tool) {
         self.tools.write().insert(tool.name.clone(), tool);
     }
-    
+
     /// Execute a tool using ReAct pattern (Reason + Act)
     /// This implements a reasoning loop that:
     /// 1. Thinks about the task
@@ -327,13 +327,13 @@ impl Worker {
         max_iterations: usize,
     ) -> Result<ToolResult, ServantError> {
         println!("[Worker ReAct] Starting task: {}", task);
-        
+
         let mut observations = Vec::new();
         let mut iteration = 0;
-        
+
         loop {
             iteration += 1;
-            
+
             if iteration > max_iterations {
                 return Ok(ToolResult {
                     tool_name: "react_loop".to_string(),
@@ -346,11 +346,14 @@ impl Worker {
                     duration_ms: 0,
                 });
             }
-            
+
             // Phase 1: Think - Analyze what to do next
             let thought = self.think_about_step(task, &observations, iteration)?;
-            println!("[Worker ReAct] Iteration {} - Thought: {}", iteration, thought);
-            
+            println!(
+                "[Worker ReAct] Iteration {} - Thought: {}",
+                iteration, thought
+            );
+
             // Phase 2: Act - Parse thought and execute tool
             if thought.contains("DONE") || thought.contains("FINISHED") {
                 // Task is complete
@@ -367,23 +370,26 @@ impl Worker {
                     duration_ms: 0,
                 });
             }
-            
+
             // Extract tool call from thought
             let (tool_name, params) = self.extract_tool_call(&thought)?;
-            
+
             // Phase 3: Observe - Execute tool and capture result
             let result = self.execute_tool(&tool_name, params.clone()).await?;
-            
+
             let observation = serde_json::json!({
                 "step": iteration,
                 "tool": tool_name,
                 "params": params,
                 "result": result,
             });
-            
+
             observations.push(observation.clone());
-            println!("[Worker ReAct] Observation: {}", serde_json::to_string(&observation).unwrap_or_default());
-            
+            println!(
+                "[Worker ReAct] Observation: {}",
+                serde_json::to_string(&observation).unwrap_or_default()
+            );
+
             if !result.success {
                 // Tool failed, decide whether to retry or abort
                 if iteration < max_iterations && !thought.contains("CRITICAL") {
@@ -405,7 +411,7 @@ impl Worker {
             }
         }
     }
-    
+
     /// Think about the next step in the ReAct loop
     fn think_about_step(
         &self,
@@ -415,7 +421,7 @@ impl Worker {
     ) -> Result<String, ServantError> {
         // In a real implementation, this would use LLM to reason
         // For now, use a simple rule-based approach
-        
+
         if observations.is_empty() {
             // First step - analyze task and decide initial action
             if task.contains("read") || task.contains("get") || task.contains("file") {
@@ -428,7 +434,7 @@ impl Worker {
                 return Ok("I need to analyze the task further. Action: file_read".to_string());
             }
         }
-        
+
         // Check last observation
         if let Some(last_obs) = observations.last() {
             if let Some(result) = last_obs.get("result") {
@@ -438,26 +444,32 @@ impl Worker {
                         // After 3 successful steps, consider task done
                         return Ok("Task appears complete. DONE".to_string());
                     }
-                    return Ok("Previous step succeeded, continuing with next step. Action: file_read".to_string());
+                    return Ok(
+                        "Previous step succeeded, continuing with next step. Action: file_read"
+                            .to_string(),
+                    );
                 } else {
                     // Last action failed
-                    return Ok("Previous step failed, trying alternative approach. Action: file_read".to_string());
+                    return Ok(
+                        "Previous step failed, trying alternative approach. Action: file_read"
+                            .to_string(),
+                    );
                 }
             }
         }
-        
+
         Ok("Continuing task execution. Action: file_read".to_string())
     }
-    
+
     /// Extract tool name and parameters from thought
     fn extract_tool_call(&thought: &str) -> Result<(String, serde_json::Value), ServantError> {
         // Parse thought to extract tool call
         // Format: "Action: tool_name" or "Action: tool_name(params)"
-        
+
         if let Some(action_pos) = thought.find("Action:") {
             let action_part = &thought[action_pos + 6..];
             let action_part = action_part.trim();
-            
+
             if let Some(paren_start) = action_part.find('(') {
                 let tool_name = &action_part[..paren_start].trim();
                 // For simplicity, return empty params
@@ -467,30 +479,31 @@ impl Worker {
                 return Ok((action_part.to_string(), serde_json::json!({})));
             }
         }
-        
+
         // Default action
         Ok(("file_read".to_string(), serde_json::json!({})))
     }
-    
+
     /// Register a custom tool
     pub fn register_tool(&self, tool: Tool) {
         self.tools.write().insert(tool.name.clone(), tool);
     }
-    
+
     /// Get available tools
     pub fn get_tools(&self) -> Vec<Tool> {
         self.tools.read().values().cloned().collect()
     }
-    
+
     /// Execute a tool with actual implementation and retry logic
     pub async fn execute_tool(
         &self,
         tool_name: &str,
         params: serde_json::Value,
     ) -> Result<ToolResult, ServantError> {
-        self.execute_tool_with_retry(tool_name, params, &RetryConfig::default()).await
+        self.execute_tool_with_retry(tool_name, params, &RetryConfig::default())
+            .await
     }
-    
+
     /// Execute a tool with retry logic
     async fn execute_tool_with_retry(
         &self,
@@ -498,36 +511,43 @@ impl Worker {
         params: serde_json::Value,
         retry_config: &RetryConfig,
     ) -> Result<ToolResult, ServantError> {
-        let mut result = self.execute_tool_internal(tool_name, params.clone()).await?;
+        let mut result = self
+            .execute_tool_internal(tool_name, params.clone())
+            .await?;
         let mut retry_count = 0;
         let mut backoff_ms = retry_config.initial_backoff_ms;
-        
+
         // Retry if the result is retryable and we haven't exhausted retries
         while !result.success && result.is_retryable() && retry_count < retry_config.max_retries {
             retry_count += 1;
-            
+
             println!(
                 "[Worker] Retrying tool {} (attempt {}/{}), backoff: {}ms",
-                tool_name, retry_count + 1, retry_config.max_retries, backoff_ms
+                tool_name,
+                retry_count + 1,
+                retry_config.max_retries,
+                backoff_ms
             );
-            
+
             // Backoff before retry
             tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-            
+
             // Execute again
-            result = self.execute_tool_internal(tool_name, params.clone()).await?;
+            result = self
+                .execute_tool_internal(tool_name, params.clone())
+                .await?;
             result.retry_count = retry_count;
-            
+
             // Increase backoff for next retry
             backoff_ms = std::cmp::min(
                 (backoff_ms as f64 * retry_config.backoff_multiplier) as u64,
                 retry_config.max_backoff_ms,
             );
         }
-        
+
         Ok(result)
     }
-    
+
     /// Internal tool execution (without retry)
     async fn execute_tool_internal(
         &self,
@@ -535,23 +555,23 @@ impl Worker {
         params: serde_json::Value,
     ) -> Result<ToolResult, ServantError> {
         let start = std::time::Instant::now();
-        
+
         // Check if tool exists
-        let tool = self.tools.read()
-            .get(tool_name)
-            .cloned()
-            .ok_or_else(|| ServantError::InvalidTask(format!("Tool '{}' not found", tool_name)))?;
-        
+        let tool =
+            self.tools.read().get(tool_name).cloned().ok_or_else(|| {
+                ServantError::InvalidTask(format!("Tool '{}' not found", tool_name))
+            })?;
+
         // Check if approval is needed
         if tool.requires_approval {
             // TODO: Check consensus for approval
             // For now, we'll proceed but log that approval was needed
             println!("[Worker] Tool {} requires approval", tool_name);
         }
-        
+
         // Mark as busy
         *self.status.write() = ServantStatus::Busy;
-        
+
         // Execute tool based on name
         let result = match tool_name {
             "read_file" => self.execute_read_file(params).await,
@@ -572,7 +592,7 @@ impl Worker {
                 retry_count: 0,
             }),
         };
-        
+
         // Record execution
         let record = ExecutionRecord {
             id: uuid::Uuid::new_v4().to_string(),
@@ -583,136 +603,144 @@ impl Worker {
             approved: tool.requires_approval,
             retry_count: 0,
         };
-        
+
         self.execution_history.write().push(record);
-        
+
         // Mark as ready
         *self.status.write() = ServantStatus::Ready;
-        
+
         result
     }
-    
+
     /// Execute read_file tool
-    async fn execute_read_file(&self, params: serde_json::Value) -> Result<ToolResult, ServantError> {
-        let path = params.get("path")
+    async fn execute_read_file(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<ToolResult, ServantError> {
+        let path = params
+            .get("path")
             .and_then(|p| p.as_str())
             .ok_or_else(|| ServantError::InvalidTask("Missing 'path' parameter".to_string()))?;
-        
+
         let start = std::time::Instant::now();
-        
+
         // Read file using standard library
         // In production, this should use the safety module
         match std::fs::read_to_string(path) {
-            Ok(content) => {
-                Ok(ToolResult::success(
-                    "read_file".to_string(),
-                    serde_json::json!({
-                        "path": path,
-                        "content": content,
-                        "size": content.len(),
-                    }),
-                    start.elapsed().as_millis() as u64,
-                ))
-            }
-            Err(e) => {
-                Ok(ToolResult::failure(
-                    "read_file".to_string(),
-                    format!("Failed to read file: {}", e),
-                    start.elapsed().as_millis() as u64,
-                ))
-            }
+            Ok(content) => Ok(ToolResult::success(
+                "read_file".to_string(),
+                serde_json::json!({
+                    "path": path,
+                    "content": content,
+                    "size": content.len(),
+                }),
+                start.elapsed().as_millis() as u64,
+            )),
+            Err(e) => Ok(ToolResult::failure(
+                "read_file".to_string(),
+                format!("Failed to read file: {}", e),
+                start.elapsed().as_millis() as u64,
+            )),
         }
     }
-    
+
     /// Execute write_file tool
-    async fn execute_write_file(&self, params: serde_json::Value) -> Result<ToolResult, ServantError> {
-        let path = params.get("path")
+    async fn execute_write_file(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<ToolResult, ServantError> {
+        let path = params
+            .get("path")
             .and_then(|p| p.as_str())
             .ok_or_else(|| ServantError::InvalidTask("Missing 'path' parameter".to_string()))?;
-        
-        let content = params.get("content")
+
+        let content = params
+            .get("content")
             .and_then(|c| c.as_str())
             .ok_or_else(|| ServantError::InvalidTask("Missing 'content' parameter".to_string()))?;
-        
+
         let start = std::time::Instant::now();
-        
+
         // Write file using standard library
         // In production, this should use the safety module with snapshot
         match std::fs::write(path, content) {
-            Ok(_) => {
-                Ok(ToolResult::success(
-                    "write_file".to_string(),
-                    serde_json::json!({
-                        "path": path,
-                        "bytes_written": content.len(),
-                    }),
-                    start.elapsed().as_millis() as u64,
-                ))
-            }
-            Err(e) => {
-                Ok(ToolResult::failure(
-                    "write_file".to_string(),
-                    format!("Failed to write file: {}", e),
-                    start.elapsed().as_millis() as u64,
-                ))
-            }
+            Ok(_) => Ok(ToolResult::success(
+                "write_file".to_string(),
+                serde_json::json!({
+                    "path": path,
+                    "bytes_written": content.len(),
+                }),
+                start.elapsed().as_millis() as u64,
+            )),
+            Err(e) => Ok(ToolResult::failure(
+                "write_file".to_string(),
+                format!("Failed to write file: {}", e),
+                start.elapsed().as_millis() as u64,
+            )),
         }
     }
-    
+
     /// Execute delete_file tool
-    async fn execute_delete_file(&self, params: serde_json::Value) -> Result<ToolResult, ServantError> {
-        let path = params.get("path")
+    async fn execute_delete_file(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<ToolResult, ServantError> {
+        let path = params
+            .get("path")
             .and_then(|p| p.as_str())
             .ok_or_else(|| ServantError::InvalidTask("Missing 'path' parameter".to_string()))?;
-        
+
         let start = std::time::Instant::now();
-        
+
         // Delete file using standard library
         // In production, this should use the safety module with snapshot
         match std::fs::remove_file(path) {
-            Ok(_) => {
-                Ok(ToolResult::success(
-                    "delete_file".to_string(),
-                    serde_json::json!({
-                        "path": path,
-                        "deleted": true,
-                    }),
-                    start.elapsed().as_millis() as u64,
-                ))
-            }
-            Err(e) => {
-                Ok(ToolResult::failure(
-                    "delete_file".to_string(),
-                    format!("Failed to delete file: {}", e),
-                    start.elapsed().as_millis() as u64,
-                ))
-            }
+            Ok(_) => Ok(ToolResult::success(
+                "delete_file".to_string(),
+                serde_json::json!({
+                    "path": path,
+                    "deleted": true,
+                }),
+                start.elapsed().as_millis() as u64,
+            )),
+            Err(e) => Ok(ToolResult::failure(
+                "delete_file".to_string(),
+                format!("Failed to delete file: {}", e),
+                start.elapsed().as_millis() as u64,
+            )),
         }
     }
-    
+
     /// Execute run_command tool
-    async fn execute_run_command(&self, params: serde_json::Value) -> Result<ToolResult, ServantError> {
-        let command = params.get("command")
+    async fn execute_run_command(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<ToolResult, ServantError> {
+        let command = params
+            .get("command")
             .and_then(|c| c.as_str())
             .ok_or_else(|| ServantError::InvalidTask("Missing 'command' parameter".to_string()))?;
-        
-        let args: Vec<String> = params.get("args")
+
+        let args: Vec<String> = params
+            .get("args")
             .and_then(|a| a.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(String::from).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(String::from)
+                    .collect()
+            })
             .unwrap_or_default();
-        
+
         let start = std::time::Instant::now();
-        
+
         // Execute command using std::process
         // In production, this should use the safety module with strict sandboxing
-        match std::process::Command::new(command)
-            .args(&args)
-            .output()
-        {
+        match std::process::Command::new(command).args(&args).output() {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                
+
                 if output.status.success() {
                     Ok(ToolResult::success(
                         "run_command".to_string(),
@@ -733,28 +761,31 @@ impl Worker {
                     ))
                 }
             }
-            Err(e) => {
-                Ok(ToolResult::failure(
-                    "run_command".to_string(),
-                    format!("Failed to execute command: {}", e),
-                    start.elapsed().as_millis() as u64,
-                ))
-            }
+            Err(e) => Ok(ToolResult::failure(
+                "run_command".to_string(),
+                format!("Failed to execute command: {}", e),
+                start.elapsed().as_millis() as u64,
+            )),
         }
     }
-    
+
     /// Execute http_request tool
-    async fn execute_http_request(&self, params: serde_json::Value) -> Result<ToolResult, ServantError> {
-        let url = params.get("url")
+    async fn execute_http_request(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<ToolResult, ServantError> {
+        let url = params
+            .get("url")
             .and_then(|u| u.as_str())
             .ok_or_else(|| ServantError::InvalidTask("Missing 'url' parameter".to_string()))?;
-        
-        let method = params.get("method")
+
+        let method = params
+            .get("method")
             .and_then(|m| m.as_str())
             .unwrap_or("GET");
-        
+
         let start = std::time::Instant::now();
-        
+
         // Make HTTP request
         // In production, this should use reqwest with proper error handling
         // For now, return a mock result
@@ -770,18 +801,22 @@ impl Worker {
             start.elapsed().as_millis() as u64,
         ))
     }
-    
+
     /// Execute analyze_code tool
-    async fn execute_analyze_code(&self, params: serde_json::Value) -> Result<ToolResult, ServantError> {
-        let code = params.get("code")
+    async fn execute_analyze_code(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<ToolResult, ServantError> {
+        let code = params
+            .get("code")
             .and_then(|c| c.as_str())
             .ok_or_else(|| ServantError::InvalidTask("Missing 'code' parameter".to_string()))?;
-        
+
         let start = std::time::Instant::now();
-        
+
         // Analyze code for common issues
         let mut issues = Vec::new();
-        
+
         // Check for common anti-patterns
         if code.contains("unwrap()") {
             issues.push("Potential panic: using unwrap()");
@@ -795,7 +830,7 @@ impl Worker {
         if code.contains("TODO") || code.contains("FIXME") {
             issues.push("Incomplete code (TODO/FIXME)");
         }
-        
+
         Ok(ToolResult::success(
             "analyze_code".to_string(),
             serde_json::json!({
@@ -807,22 +842,24 @@ impl Worker {
             start.elapsed().as_millis() as u64,
         ))
     }
-    
+
     /// Execute list_files tool
-    async fn execute_list_files(&self, params: serde_json::Value) -> Result<ToolResult, ServantError> {
-        let path = params.get("path")
-            .and_then(|p| p.as_str())
-            .unwrap_or(".");
-        
-        let recursive = params.get("recursive")
+    async fn execute_list_files(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<ToolResult, ServantError> {
+        let path = params.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+
+        let recursive = params
+            .get("recursive")
             .and_then(|r| r.as_bool())
             .unwrap_or(false);
-        
+
         let start = std::time::Instant::now();
-        
+
         // List files in directory
         let mut files = Vec::new();
-        
+
         if recursive {
             if let Ok(entries) = std::fs::read_dir(path) {
                 for entry in entries.flatten() {
@@ -843,7 +880,7 @@ impl Worker {
                 }
             }
         }
-        
+
         Ok(ToolResult::success(
             "list_files".to_string(),
             serde_json::json!({
@@ -855,22 +892,24 @@ impl Worker {
             start.elapsed().as_millis() as u64,
         ))
     }
-    
+
     /// Execute search_files tool
-    async fn execute_search_files(&self, params: serde_json::Value) -> Result<ToolResult, ServantError> {
-        let pattern = params.get("pattern")
+    async fn execute_search_files(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<ToolResult, ServantError> {
+        let pattern = params
+            .get("pattern")
             .and_then(|p| p.as_str())
             .ok_or_else(|| ServantError::InvalidTask("Missing 'pattern' parameter".to_string()))?;
-        
-        let path = params.get("path")
-            .and_then(|p| p.as_str())
-            .unwrap_or(".");
-        
+
+        let path = params.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+
         let start = std::time::Instant::now();
-        
+
         // Search for pattern in files
         let mut matches = Vec::new();
-        
+
         if let Ok(entries) = std::fs::read_dir(path) {
             for entry in entries.flatten() {
                 let entry_path = entry.path();
@@ -889,7 +928,7 @@ impl Worker {
                 }
             }
         }
-        
+
         Ok(ToolResult::success(
             "search_files".to_string(),
             serde_json::json!({
@@ -901,65 +940,63 @@ impl Worker {
             start.elapsed().as_millis() as u64,
         ))
     }
-    
+
     /// Execute file_info tool
-    async fn execute_file_info(&self, params: serde_json::Value) -> Result<ToolResult, ServantError> {
-        let path = params.get("path")
+    async fn execute_file_info(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<ToolResult, ServantError> {
+        let path = params
+            .get("path")
             .and_then(|p| p.as_str())
             .ok_or_else(|| ServantError::InvalidTask("Missing 'path' parameter".to_string()))?;
-        
+
         let start = std::time::Instant::now();
-        
+
         // Get file metadata
         match std::fs::metadata(path) {
-            Ok(meta) => {
-                Ok(ToolResult::success(
-                    "file_info".to_string(),
-                    serde_json::json!({
-                        "path": path,
-                        "is_dir": meta.is_dir(),
-                        "is_file": meta.is_file(),
-                        "size": meta.len(),
-                        "modified": meta.modified()
-                            .ok()
-                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs()),
-                        "permissions": format!("{:o}", meta.permissions().mode() & 0o777),
-                    }),
-                    start.elapsed().as_millis() as u64,
-                ))
-            }
-            Err(e) => {
-                Ok(ToolResult::failure(
-                    "file_info".to_string(),
-                    format!("Failed to get file info: {}", e),
-                    start.elapsed().as_millis() as u64,
-                ))
-            }
+            Ok(meta) => Ok(ToolResult::success(
+                "file_info".to_string(),
+                serde_json::json!({
+                    "path": path,
+                    "is_dir": meta.is_dir(),
+                    "is_file": meta.is_file(),
+                    "size": meta.len(),
+                    "modified": meta.modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs()),
+                    "permissions": format!("{:o}", meta.permissions().mode() & 0o777),
+                }),
+                start.elapsed().as_millis() as u64,
+            )),
+            Err(e) => Ok(ToolResult::failure(
+                "file_info".to_string(),
+                format!("Failed to get file info: {}", e),
+                start.elapsed().as_millis() as u64,
+            )),
         }
     }
-    
+
     /// Execute a task
     pub async fn execute_task(&self, task: ServantTask) -> Result<ServantResult, ServantError> {
         let start = std::time::Instant::now();
-        
+
         // Set current task
         *self.current_task.write() = Some(task.clone());
-        
+
         // Execute based on task type
-        let result = self.execute_tool(&task.task_type, task.params.clone()).await?;
-        
+        let result = self
+            .execute_tool(&task.task_type, task.params.clone())
+            .await?;
+
         // Clear current task
         *self.current_task.write() = None;
-        
+
         let duration_ms = start.elapsed().as_millis() as u64;
-        
+
         if result.success {
-            Ok(ServantResult::success(
-                task.id,
-                result.output,
-                duration_ms,
-            ))
+            Ok(ServantResult::success(task.id, result.output, duration_ms))
         } else {
             Ok(ServantResult::failure(
                 task.id,
@@ -968,12 +1005,12 @@ impl Worker {
             ))
         }
     }
-    
+
     /// Get execution history
     pub fn get_execution_history(&self) -> Vec<ExecutionRecord> {
         self.execution_history.read().clone()
     }
-    
+
     /// Vote on a proposal
     pub async fn vote_on_proposal(
         &self,
@@ -982,7 +1019,8 @@ impl Worker {
         reason: String,
     ) -> Result<(), ServantError> {
         if let Some(consensus) = &self.consensus {
-            consensus.cast_vote(proposal_id, self.id.as_str().to_string(), vote, reason)
+            consensus
+                .cast_vote(proposal_id, self.id.as_str().to_string(), vote, reason)
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
         }
         Ok(())
@@ -1000,20 +1038,20 @@ impl Servant for Worker {
     fn id(&self) -> &ServantId {
         &self.id
     }
-    
+
     fn role(&self) -> ServantRole {
         ServantRole::Worker
     }
-    
+
     fn status(&self) -> ServantStatus {
         self.status.read().clone()
     }
-    
+
     async fn start(&mut self) -> Result<(), ServantError> {
         *self.status.write() = ServantStatus::Ready;
         Ok(())
     }
-    
+
     async fn stop(&mut self) -> Result<(), ServantError> {
         *self.status.write() = ServantStatus::Stopping;
         // Wait for current task to complete
@@ -1021,7 +1059,7 @@ impl Servant for Worker {
         *self.status.write() = ServantStatus::Paused;
         Ok(())
     }
-    
+
     fn capabilities(&self) -> Vec<String> {
         self.tools.read().keys().cloned().collect()
     }
@@ -1036,60 +1074,58 @@ mod tests {
         let worker = Worker::new();
         assert_eq!(worker.role(), ServantRole::Worker);
         assert_eq!(worker.status(), ServantStatus::Starting);
-        
+
         // Should have default tools
         let tools = worker.get_tools();
         assert!(!tools.is_empty());
     }
-    
+
     #[tokio::test]
     async fn test_worker_start_stop() {
         let mut worker = Worker::new();
-        
+
         worker.start().await.unwrap();
         assert_eq!(worker.status(), ServantStatus::Ready);
-        
+
         worker.stop().await.unwrap();
         assert_eq!(worker.status(), ServantStatus::Paused);
     }
-    
+
     #[tokio::test]
     async fn test_execute_tool() {
         let mut worker = Worker::new();
         worker.start().await.unwrap();
-        
-        let result = worker.execute_tool(
-            "read_file",
-            serde_json::json!({"path": "/test.txt"}),
-        ).await;
-        
+
+        let result = worker
+            .execute_tool("read_file", serde_json::json!({"path": "/test.txt"}))
+            .await;
+
         assert!(result.is_ok());
         let r = result.unwrap();
         assert!(r.success);
     }
-    
+
     #[tokio::test]
     async fn test_execute_unknown_tool() {
         let mut worker = Worker::new();
         worker.start().await.unwrap();
-        
-        let result = worker.execute_tool(
-            "unknown_tool",
-            serde_json::json!({}),
-        ).await;
-        
+
+        let result = worker
+            .execute_tool("unknown_tool", serde_json::json!({}))
+            .await;
+
         assert!(result.is_err());
     }
-    
+
     #[tokio::test]
     async fn test_register_custom_tool() {
         let worker = Worker::new();
-        
-        let custom_tool = Tool::new("custom_op".to_string(), "A custom operation".to_string())
-            .with_risk_level(3);
-        
+
+        let custom_tool =
+            Tool::new("custom_op".to_string(), "A custom operation".to_string()).with_risk_level(3);
+
         worker.register_tool(custom_tool);
-        
+
         let tools = worker.get_tools();
         assert!(tools.iter().any(|t| t.name == "custom_op"));
     }

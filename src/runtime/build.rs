@@ -274,8 +274,20 @@ impl BuildAutomationImpl {
 
         let search_pattern = match target {
             BuildTarget::WasmComponent => "*.wasm",
-            BuildTarget::NativeBinary => if cfg!(windows) { "*.exe" } else { "servant-guild" },
-            BuildTarget::Dev | BuildTarget::Release => if cfg!(windows) { "*.exe" } else { "servant-guild" },
+            BuildTarget::NativeBinary => {
+                if cfg!(windows) {
+                    "*.exe"
+                } else {
+                    "servant-guild"
+                }
+            }
+            BuildTarget::Dev | BuildTarget::Release => {
+                if cfg!(windows) {
+                    "*.exe"
+                } else {
+                    "servant-guild"
+                }
+            }
         };
 
         if let Ok(entries) = std::fs::read_dir(&target_dir) {
@@ -284,7 +296,10 @@ impl BuildAutomationImpl {
                     if file_type.is_file() {
                         let path = entry.path();
                         if let Some(name) = path.file_name() {
-                            if name.to_string_lossy().ends_with(search_pattern.trim_start_matches('*')) {
+                            if name
+                                .to_string_lossy()
+                                .ends_with(search_pattern.trim_start_matches('*'))
+                            {
                                 if let Ok(metadata) = entry.metadata() {
                                     let checksum = if let Ok(contents) = std::fs::read(&path) {
                                         format!("{:x}", sha2::Sha256::digest(&contents))
@@ -296,7 +311,8 @@ impl BuildAutomationImpl {
                                         artifact_type: match target {
                                             BuildTarget::WasmComponent => "wasm",
                                             _ => "binary",
-                                        }.to_string(),
+                                        }
+                                        .to_string(),
                                         path,
                                         size: metadata.len(),
                                         checksum,
@@ -315,11 +331,10 @@ impl BuildAutomationImpl {
     /// Get dependency info from Cargo.toml
     async fn parse_dependencies(&self, project_path: &Path) -> Result<Vec<DependencyInfo>> {
         let cargo_toml = project_path.join("Cargo.toml");
-        let content = std::fs::read_to_string(&cargo_toml)
-            .context("Failed to read Cargo.toml")?;
+        let content = std::fs::read_to_string(&cargo_toml).context("Failed to read Cargo.toml")?;
 
-        let manifest: cargo_toml::Manifest = cargo_toml::Manifest::from_str(&content)
-            .context("Failed to parse Cargo.toml")?;
+        let manifest: cargo_toml::Manifest =
+            cargo_toml::Manifest::from_str(&content).context("Failed to parse Cargo.toml")?;
 
         let mut deps = Vec::new();
 
@@ -383,7 +398,10 @@ impl BuildAutomation for BuildAutomationImpl {
         for check in checks {
             if let Ok(output) = check {
                 if output.status.success() {
-                    debug!("Tool available: {}", String::from_utf8_lossy(&output.stdout));
+                    debug!(
+                        "Tool available: {}",
+                        String::from_utf8_lossy(&output.stdout)
+                    );
                 } else {
                     all_available = false;
                     warn!("Tool check failed");
@@ -454,7 +472,9 @@ impl BuildAutomation for BuildAutomationImpl {
     }
 
     async fn check_fmt(&self, project_path: PathBuf) -> Result<bool> {
-        let output = self.execute_cargo(&project_path, &["fmt", "--all", "--", "--check"]).await?;
+        let output = self
+            .execute_cargo(&project_path, &["fmt", "--all", "--", "--check"])
+            .await?;
         Ok(output.success)
     }
 

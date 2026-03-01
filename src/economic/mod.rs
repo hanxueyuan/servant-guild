@@ -14,11 +14,11 @@ pub mod pricing;
 pub mod provider;
 pub mod tracker;
 
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use chrono::{DateTime, Utc, Duration};
 
 pub use budget::BudgetManager;
 pub use cache::TokenCache;
@@ -60,7 +60,7 @@ impl LlmProvider {
             Self::Doubao => "doubao",
         }
     }
-    
+
     /// Check if provider supports caching
     pub fn supports_caching(&self) -> bool {
         matches!(self, Self::Anthropic | Self::DeepSeek)
@@ -96,11 +96,7 @@ pub struct TokenUsage {
 
 impl TokenUsage {
     /// Create new token usage record
-    pub fn new(
-        agent: String,
-        provider: LlmProvider,
-        model: String,
-    ) -> Self {
+    pub fn new(agent: String, provider: LlmProvider, model: String) -> Self {
         Self {
             id: uuid::Uuid::new_v4(),
             agent,
@@ -115,17 +111,17 @@ impl TokenUsage {
             metadata: HashMap::new(),
         }
     }
-    
+
     /// Add token count
     pub fn add_tokens(&mut self, token_type: TokenType, count: u64) {
         *self.tokens.entry(token_type).or_insert(0) += count;
     }
-    
+
     /// Get total tokens
     pub fn total_tokens(&self) -> u64 {
         self.tokens.values().sum()
     }
-    
+
     /// Calculate and set cost
     pub fn calculate_cost(&mut self, pricing: &PricingEngine) {
         self.cost_usd = pricing.calculate_cost(
@@ -228,16 +224,19 @@ pub struct EconomicConfig {
 impl Default for EconomicConfig {
     fn default() -> Self {
         let mut provider_priorities = HashMap::new();
-        provider_priorities.insert(LlmProvider::DeepSeek, 5);  // Cheapest, good quality
+        provider_priorities.insert(LlmProvider::DeepSeek, 5); // Cheapest, good quality
         provider_priorities.insert(LlmProvider::Doubao, 4);
         provider_priorities.insert(LlmProvider::Kimi, 3);
         provider_priorities.insert(LlmProvider::Anthropic, 2);
-        provider_priorities.insert(LlmProvider::OpenAI, 1);    // Most expensive
-        
+        provider_priorities.insert(LlmProvider::OpenAI, 1); // Most expensive
+
         let mut model_aliases = HashMap::new();
         model_aliases.insert("gpt-4".to_string(), "gpt-4-turbo-preview".to_string());
-        model_aliases.insert("claude-3".to_string(), "claude-3-sonnet-20240229".to_string());
-        
+        model_aliases.insert(
+            "claude-3".to_string(),
+            "claude-3-sonnet-20240229".to_string(),
+        );
+
         Self {
             budget: BudgetConfig::default(),
             optimization: OptimizationStrategy::default(),
@@ -265,7 +264,7 @@ impl EconomicModel {
         let optimizer = Arc::new(TokenOptimizer::new(config.optimization.clone()));
         let cache = Arc::new(TokenCache::new(config.optimization.cache_ttl_secs));
         let metrics = Arc::new(EconomicMetrics::new());
-        
+
         Self {
             config,
             tracker,
@@ -275,59 +274,68 @@ impl EconomicModel {
             metrics,
         }
     }
-    
+
     /// Record token usage
     pub async fn record_usage(&self, usage: TokenUsage) -> Result<(), String> {
         // Check budget
-        if !self.budget_manager.can_spend(usage.cost_usd, &usage.agent).await {
+        if !self
+            .budget_manager
+            .can_spend(usage.cost_usd, &usage.agent)
+            .await
+        {
             return Err("Budget limit exceeded".to_string());
         }
-        
+
         // Record usage
         self.tracker.record(usage.clone()).await;
-        
+
         // Update budget
-        self.budget_manager.spend(usage.cost_usd, &usage.agent).await;
-        
+        self.budget_manager
+            .spend(usage.cost_usd, &usage.agent)
+            .await;
+
         // Update metrics
         self.metrics.record_usage(&usage);
-        
+
         Ok(())
     }
-    
+
     /// Check if request can be made
     pub async fn can_make_request(&self, estimated_cost: f64, agent: &str) -> bool {
         self.budget_manager.can_spend(estimated_cost, agent).await
     }
-    
+
     /// Get optimal provider for request
     pub fn get_optimal_provider(&self, requirements: &ProviderRequirements) -> LlmProvider {
-        self.optimizer.select_provider(requirements, &self.config.provider_priorities)
+        self.optimizer
+            .select_provider(requirements, &self.config.provider_priorities)
     }
-    
+
     /// Check cache for similar request
     pub async fn check_cache(&self, prompt_hash: &str) -> Option<String> {
         self.cache.get(prompt_hash).await
     }
-    
+
     /// Store response in cache
     pub async fn cache_response(&self, prompt_hash: &str, response: &str) {
         self.cache.set(prompt_hash, response).await;
     }
-    
+
     /// Get current budget status
     pub async fn budget_status(&self) -> BudgetStatus {
         self.budget_manager.status().await
     }
-    
+
     /// Get usage statistics
     pub async fn usage_stats(&self, period: TimePeriod) -> UsageStats {
         self.tracker.stats(period).await
     }
-    
+
     /// Get optimization recommendations
     pub async fn optimization_recommendations(&self) -> Vec<OptimizationRecommendation> {
-        self.optimizer.recommendations(&self.tracker.stats(TimePeriod::Day).await).await
+        self.optimizer
+            .recommendations(&self.tracker.stats(TimePeriod::Day).await)
+            .await
     }
 }
 
@@ -454,7 +462,7 @@ pub enum RecommendationType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_token_usage() {
         let mut usage = TokenUsage::new(
@@ -462,22 +470,22 @@ mod tests {
             LlmProvider::DeepSeek,
             "deepseek-chat".to_string(),
         );
-        
+
         usage.add_tokens(TokenType::Input, 1000);
         usage.add_tokens(TokenType::Output, 500);
-        
+
         assert_eq!(usage.total_tokens(), 1500);
     }
-    
+
     #[test]
     fn test_budget_config_default() {
         let config = BudgetConfig::default();
-        
+
         assert_eq!(config.daily_limit_usd, 50.0);
         assert_eq!(config.warning_threshold, 0.7);
         assert!(config.auto_throttle);
     }
-    
+
     #[test]
     fn test_llm_provider_caching() {
         assert!(LlmProvider::Anthropic.supports_caching());

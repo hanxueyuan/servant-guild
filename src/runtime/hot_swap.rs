@@ -24,7 +24,10 @@ pub enum SwapStrategy {
     /// Graceful swap (waits for in-flight requests)
     Graceful { timeout_secs: u64 },
     /// Staged swap (gradual traffic migration)
-    Staged { initial_percent: u32, migration_interval_secs: u64 },
+    Staged {
+        initial_percent: u32,
+        migration_interval_secs: u64,
+    },
 }
 
 /// Module version
@@ -153,12 +156,16 @@ impl HotSwapManager {
     }
 
     /// Load a new module
-    pub async fn load_module(&self, name: String, wasm_path: PathBuf, version: ModuleVersion) -> Result<ModuleMetadata> {
+    pub async fn load_module(
+        &self,
+        name: String,
+        wasm_path: PathBuf,
+        version: ModuleVersion,
+    ) -> Result<ModuleMetadata> {
         info!("Loading module '{}' from {:?}", name, wasm_path);
 
         // Read wasm file
-        let wasm_bytes = std::fs::read(&wasm_path)
-            .context("Failed to read wasm file")?;
+        let wasm_bytes = std::fs::read(&wasm_path).context("Failed to read wasm file")?;
 
         // Calculate checksum
         let checksum = format!("{:x}", sha2::Sha256::digest(&wasm_bytes));
@@ -179,7 +186,10 @@ impl HotSwapManager {
         };
 
         // Store module
-        self.modules.write().await.insert(name.clone(), metadata.clone());
+        self.modules
+            .write()
+            .await
+            .insert(name.clone(), metadata.clone());
 
         // Add to version history
         let mut history = self.version_history.write().await;
@@ -201,7 +211,10 @@ impl HotSwapManager {
         strategy: SwapStrategy,
     ) -> Result<SwapResult> {
         let start_time = Utc::now();
-        info!("Starting hot-swap for module '{}' to version {:?}", module_name, new_version);
+        info!(
+            "Starting hot-swap for module '{}' to version {:?}",
+            module_name, new_version
+        );
 
         // Get current version
         let current_version = {
@@ -212,7 +225,8 @@ impl HotSwapManager {
         // Get module metadata
         let metadata = {
             let modules = self.modules.read().await;
-            modules.get(&module_name)
+            modules
+                .get(&module_name)
                 .context("Module not found")?
                 .clone()
         };
@@ -225,23 +239,40 @@ impl HotSwapManager {
         // Execute swap based on strategy
         match strategy {
             SwapStrategy::Immediate => {
-                self.execute_immediate_swap(module_name.clone(), new_version.clone()).await?;
+                self.execute_immediate_swap(module_name.clone(), new_version.clone())
+                    .await?;
             }
             SwapStrategy::Graceful { timeout_secs } => {
-                self.execute_graceful_swap(module_name.clone(), new_version.clone(), timeout_secs).await?;
+                self.execute_graceful_swap(module_name.clone(), new_version.clone(), timeout_secs)
+                    .await?;
             }
-            SwapStrategy::Staged { initial_percent, migration_interval_secs } => {
-                self.execute_staged_swap(module_name.clone(), new_version.clone(), initial_percent, migration_interval_secs).await?;
+            SwapStrategy::Staged {
+                initial_percent,
+                migration_interval_secs,
+            } => {
+                self.execute_staged_swap(
+                    module_name.clone(),
+                    new_version.clone(),
+                    initial_percent,
+                    migration_interval_secs,
+                )
+                .await?;
             }
         }
 
         // Update active version
-        self.active_versions.write().await.insert(module_name.clone(), new_version.clone());
+        self.active_versions
+            .write()
+            .await
+            .insert(module_name.clone(), new_version.clone());
 
         let end_time = Utc::now();
         let duration_ms = (end_time - start_time).num_milliseconds() as u64;
 
-        info!("Hot-swap completed for module '{}' in {}ms", module_name, duration_ms);
+        info!(
+            "Hot-swap completed for module '{}' in {}ms",
+            module_name, duration_ms
+        );
 
         Ok(SwapResult {
             success: true,
@@ -256,7 +287,12 @@ impl HotSwapManager {
     }
 
     /// Rollback to previous version
-    pub async fn rollback(&self, module_name: String, target_version: ModuleVersion, reason: String) -> Result<SwapResult> {
+    pub async fn rollback(
+        &self,
+        module_name: String,
+        target_version: ModuleVersion,
+        reason: String,
+    ) -> Result<SwapResult> {
         info!(
             "Rolling back module '{}' to version {:?}. Reason: {}",
             module_name, target_version, reason
@@ -264,7 +300,8 @@ impl HotSwapManager {
 
         // Verify version exists in history
         let history = self.version_history.read().await;
-        let module_history = history.get(&module_name)
+        let module_history = history
+            .get(&module_name)
             .context("Module history not found")?;
 
         if !module_history.contains(&target_version) {
@@ -274,7 +311,8 @@ impl HotSwapManager {
         drop(history);
 
         // Execute swap
-        self.hot_swap(module_name.clone(), target_version, SwapStrategy::Immediate).await
+        self.hot_swap(module_name.clone(), target_version, SwapStrategy::Immediate)
+            .await
     }
 
     /// Get active version
@@ -284,34 +322,52 @@ impl HotSwapManager {
 
     /// Get module history
     pub async fn get_module_history(&self, module_name: String) -> Vec<ModuleVersion> {
-        self.version_history.read().await
+        self.version_history
+            .read()
+            .await
             .get(&module_name)
             .cloned()
             .unwrap_or_default()
     }
 
     /// Execute immediate swap
-    async fn execute_immediate_swap(&self, module_name: String, new_version: ModuleVersion) -> Result<()> {
+    async fn execute_immediate_swap(
+        &self,
+        module_name: String,
+        new_version: ModuleVersion,
+    ) -> Result<()> {
         debug!("Executing immediate swap for module '{}'", module_name);
 
         // Reload wasm module
         let metadata = {
             let modules = self.modules.read().await;
-            modules.get(&module_name)
+            modules
+                .get(&module_name)
                 .context("Module not found")?
                 .clone()
         };
 
         // Update wasm runtime with new module
         // This would reload the Wasm component
-        let _ = self.wasm_runtime.load_component(&module_name, &metadata.wasm_path).await?;
+        let _ = self
+            .wasm_runtime
+            .load_component(&module_name, &metadata.wasm_path)
+            .await?;
 
         Ok(())
     }
 
     /// Execute graceful swap
-    async fn execute_graceful_swap(&self, module_name: String, new_version: ModuleVersion, timeout_secs: u64) -> Result<()> {
-        info!("Executing graceful swap for module '{}' with timeout {}s", module_name, timeout_secs);
+    async fn execute_graceful_swap(
+        &self,
+        module_name: String,
+        new_version: ModuleVersion,
+        timeout_secs: u64,
+    ) -> Result<()> {
+        info!(
+            "Executing graceful swap for module '{}' with timeout {}s",
+            module_name, timeout_secs
+        );
 
         // Wait for in-flight requests to complete
         // In a real implementation, this would track active requests
@@ -365,13 +421,28 @@ impl HotSwapManager {
 #[async_trait]
 pub trait HotSwap: Send + Sync {
     /// Load a module
-    async fn load_module(&self, name: String, wasm_path: PathBuf, version: ModuleVersion) -> Result<ModuleMetadata>;
+    async fn load_module(
+        &self,
+        name: String,
+        wasm_path: PathBuf,
+        version: ModuleVersion,
+    ) -> Result<ModuleMetadata>;
 
     /// Hot-swap a module
-    async fn hot_swap(&self, module_name: String, new_version: ModuleVersion, strategy: SwapStrategy) -> Result<SwapResult>;
+    async fn hot_swap(
+        &self,
+        module_name: String,
+        new_version: ModuleVersion,
+        strategy: SwapStrategy,
+    ) -> Result<SwapResult>;
 
     /// Rollback to previous version
-    async fn rollback(&self, module_name: String, target_version: ModuleVersion, reason: String) -> Result<SwapResult>;
+    async fn rollback(
+        &self,
+        module_name: String,
+        target_version: ModuleVersion,
+        reason: String,
+    ) -> Result<SwapResult>;
 
     /// Get active version
     async fn get_active_version(&self, module_name: String) -> Option<ModuleVersion>;
@@ -382,15 +453,30 @@ pub trait HotSwap: Send + Sync {
 
 #[async_trait]
 impl HotSwap for HotSwapManager {
-    async fn load_module(&self, name: String, wasm_path: PathBuf, version: ModuleVersion) -> Result<ModuleMetadata> {
+    async fn load_module(
+        &self,
+        name: String,
+        wasm_path: PathBuf,
+        version: ModuleVersion,
+    ) -> Result<ModuleMetadata> {
         self.load_module(name, wasm_path, version).await
     }
 
-    async fn hot_swap(&self, module_name: String, new_version: ModuleVersion, strategy: SwapStrategy) -> Result<SwapResult> {
+    async fn hot_swap(
+        &self,
+        module_name: String,
+        new_version: ModuleVersion,
+        strategy: SwapStrategy,
+    ) -> Result<SwapResult> {
         self.hot_swap(module_name, new_version, strategy).await
     }
 
-    async fn rollback(&self, module_name: String, target_version: ModuleVersion, reason: String) -> Result<SwapResult> {
+    async fn rollback(
+        &self,
+        module_name: String,
+        target_version: ModuleVersion,
+        reason: String,
+    ) -> Result<SwapResult> {
         self.rollback(module_name, target_version, reason).await
     }
 
@@ -409,8 +495,7 @@ mod tests {
 
     #[test]
     fn test_module_version() {
-        let version = ModuleVersion::new("1.0.0".to_string())
-            .with_commit("abc123".to_string());
+        let version = ModuleVersion::new("1.0.0".to_string()).with_commit("abc123".to_string());
 
         assert_eq!(version.version, "1.0.0");
         assert_eq!(version.commit_sha, Some("abc123".to_string()));
@@ -421,7 +506,10 @@ mod tests {
         let strategies = vec![
             SwapStrategy::Immediate,
             SwapStrategy::Graceful { timeout_secs: 30 },
-            SwapStrategy::Staged { initial_percent: 10, migration_interval_secs: 60 },
+            SwapStrategy::Staged {
+                initial_percent: 10,
+                migration_interval_secs: 60,
+            },
         ];
 
         for strategy in strategies {

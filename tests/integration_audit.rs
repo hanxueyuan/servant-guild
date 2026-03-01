@@ -1,6 +1,6 @@
-use std::path::PathBuf;
-use std::fs;
 use serde_json::json;
+use std::fs;
+use std::path::PathBuf;
 
 // -----------------------------------------------------------------------------
 // Integration Test for Audit Logs (Data Consistency & Format)
@@ -36,7 +36,8 @@ mod tests {
 
         // 1. Read and Verify Format
         let content = fs::read_to_string(&audit_file).unwrap();
-        let parsed_entry: AuditEntry = serde_json::from_str(&content).expect("Failed to parse JSON");
+        let parsed_entry: AuditEntry =
+            serde_json::from_str(&content).expect("Failed to parse JSON");
 
         assert_eq!(parsed_entry.intent, "modify_system_config");
         assert_eq!(parsed_entry.params["key"], "max_connections");

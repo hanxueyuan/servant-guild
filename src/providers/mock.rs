@@ -1,4 +1,4 @@
-use crate::providers::traits::{Provider, ChatRequest, ChatResponse, ChatMessage};
+use crate::providers::traits::{ChatMessage, ChatRequest, ChatResponse, Provider};
 use async_trait::async_trait;
 
 #[derive(Clone)]

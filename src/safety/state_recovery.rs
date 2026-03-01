@@ -19,7 +19,7 @@ use tokio::fs;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
-use crate::runtime::{StateMigrator, StateSnapshot, MigrationPlan};
+use crate::runtime::{MigrationPlan, StateMigrator, StateSnapshot};
 use crate::safety::rollback::{SnapshotMetadata, SnapshotType};
 
 /// Recovery manager
@@ -156,7 +156,7 @@ impl RecoveryManager {
         config: RecoveryConfig,
     ) -> Result<Self> {
         std::fs::create_dir_all(&snapshots_dir)?;
-        
+
         Ok(Self {
             migrator,
             snapshots_dir,
@@ -177,10 +177,13 @@ impl RecoveryManager {
         {
             let active = self.active_recoveries.read().await;
             if active.len() >= self.config.max_concurrent {
-                bail!("Maximum concurrent recoveries reached: {}", self.config.max_concurrent);
+                bail!(
+                    "Maximum concurrent recoveries reached: {}",
+                    self.config.max_concurrent
+                );
             }
         }
-        
+
         // Create recovery status
         let recovery_id = format!("recovery-{}", uuid::Uuid::new_v4());
         let status = RecoveryStatus {
@@ -191,13 +194,16 @@ impl RecoveryManager {
             started_at: chrono::Utc::now(),
             errors: Vec::new(),
         };
-        
-        self.active_recoveries.write().await.insert(recovery_id.clone(), status);
-        
+
+        self.active_recoveries
+            .write()
+            .await
+            .insert(recovery_id.clone(), status);
+
         // Run recovery
         let recovery_id_clone = recovery_id.clone();
         let result = self.execute_recovery(snapshot_id, &recovery_id_clone).await;
-        
+
         // Record result
         let record = RecoveryRecord {
             id: format!("rec-{}", uuid::Uuid::new_v4()),
@@ -206,9 +212,9 @@ impl RecoveryManager {
             duration_ms: 0, // Will be updated
             timestamp: chrono::Utc::now(),
         };
-        
+
         self.history.write().await.push(record);
-        
+
         // Update status
         if let Some(status) = self.active_recoveries.write().await.get_mut(&recovery_id) {
             status.phase = if result.success {
@@ -218,7 +224,7 @@ impl RecoveryManager {
             };
             status.progress = 100;
         }
-        
+
         Ok(recovery_id)
     }
 
@@ -232,28 +238,34 @@ impl RecoveryManager {
             warnings: Vec::new(),
             errors: Vec::new(),
         };
-        
+
         let mut attempts = 0;
-        
+
         while attempts <= self.config.max_retries {
-            match self.try_recovery(snapshot_id, recovery_id, &mut result).await {
+            match self
+                .try_recovery(snapshot_id, recovery_id, &mut result)
+                .await
+            {
                 Ok(_) => {
                     result.success = true;
                     break;
                 }
                 Err(e) => {
                     attempts += 1;
-                    result.errors.push(format!("Attempt {} failed: {}", attempts, e));
-                    
+                    result
+                        .errors
+                        .push(format!("Attempt {} failed: {}", attempts, e));
+
                     if attempts <= self.config.max_retries {
                         // Backoff
-                        let backoff = self.config.backoff_base_ms * (2_u64.pow(attempts as u32 - 1));
+                        let backoff =
+                            self.config.backoff_base_ms * (2_u64.pow(attempts as u32 - 1));
                         tokio::time::sleep(std::time::Duration::from_millis(backoff)).await;
                     }
                 }
             }
         }
-        
+
         // Auto-rollback if enabled and failed
         if !result.success && self.config.auto_rollback {
             if let Err(e) = self.rollback_recovery(recovery_id).await {
@@ -262,7 +274,7 @@ impl RecoveryManager {
                 status.phase = RecoveryPhase::RolledBack;
             }
         }
-        
+
         result
     }
 
@@ -274,18 +286,21 @@ impl RecoveryManager {
         result: &mut RecoveryResult,
     ) -> Result<()> {
         // Phase: Loading
-        self.update_phase(recovery_id, RecoveryPhase::Loading, 10).await;
-        
+        self.update_phase(recovery_id, RecoveryPhase::Loading, 10)
+            .await;
+
         let snapshot = self.load_snapshot(snapshot_id).await?;
-        
+
         // Phase: Validating
-        self.update_phase(recovery_id, RecoveryPhase::Validating, 20).await;
-        
+        self.update_phase(recovery_id, RecoveryPhase::Validating, 20)
+            .await;
+
         self.validate_snapshot(&snapshot)?;
-        
+
         // Phase: Migrating (if needed)
-        self.update_phase(recovery_id, RecoveryPhase::Migrating, 40).await;
-        
+        self.update_phase(recovery_id, RecoveryPhase::Migrating, 40)
+            .await;
+
         let state = if let Some(plan) = self.get_migration_plan(&snapshot).await? {
             let migration_result = self.migrator.migrate(&snapshot, &plan).await?;
             if !migration_result.success {
@@ -296,18 +311,20 @@ impl RecoveryManager {
         } else {
             snapshot.data
         };
-        
+
         // Phase: Applying
-        self.update_phase(recovery_id, RecoveryPhase::Applying, 60).await;
-        
+        self.update_phase(recovery_id, RecoveryPhase::Applying, 60)
+            .await;
+
         self.apply_state(&state, result).await?;
-        
+
         // Phase: Verifying
         if self.config.verify_after {
-            self.update_phase(recovery_id, RecoveryPhase::Verifying, 80).await;
+            self.update_phase(recovery_id, RecoveryPhase::Verifying, 80)
+                .await;
             self.verify_recovery(&state).await?;
         }
-        
+
         Ok(())
     }
 
@@ -322,19 +339,19 @@ impl RecoveryManager {
     /// Load snapshot from disk
     async fn load_snapshot(&self, snapshot_id: &str) -> Result<StateSnapshot> {
         let snapshot_path = self.snapshots_dir.join(format!("{}.json", snapshot_id));
-        
+
         if !snapshot_path.exists() {
             bail!("Snapshot not found: {}", snapshot_id);
         }
-        
+
         let content = fs::read_to_string(&snapshot_path).await?;
         let snapshot: StateSnapshot = serde_json::from_str(&content)?;
-        
+
         // Verify checksum
         if !self.migrator.verify_snapshot(&snapshot)? {
             bail!("Snapshot checksum verification failed");
         }
-        
+
         Ok(snapshot)
     }
 
@@ -344,16 +361,16 @@ impl RecoveryManager {
         if snapshot.module_id.is_empty() {
             bail!("Snapshot has empty module_id");
         }
-        
+
         if snapshot.schema_version.is_empty() {
             bail!("Snapshot has empty schema_version");
         }
-        
+
         // Check data is valid JSON
         if !snapshot.data.is_object() && !snapshot.data.is_array() {
             bail!("Snapshot data must be object or array");
         }
-        
+
         Ok(())
     }
 
@@ -361,11 +378,11 @@ impl RecoveryManager {
     async fn get_migration_plan(&self, snapshot: &StateSnapshot) -> Result<Option<MigrationPlan>> {
         // Check if current schema version differs
         let current_version = "current"; // Would get from system
-        
+
         if snapshot.schema_version == current_version {
             return Ok(None);
         }
-        
+
         // Would create actual migration plan
         Ok(None)
     }
@@ -385,16 +402,21 @@ impl RecoveryManager {
                     }
                     Err(e) => {
                         result.modules_failed.push(module_id.clone());
-                        result.errors.push(format!("Failed to recover {}: {}", module_id, e));
+                        result
+                            .errors
+                            .push(format!("Failed to recover {}: {}", module_id, e));
                     }
                 }
             }
         }
-        
+
         if !result.modules_failed.is_empty() {
-            bail!("Some modules failed to recover: {:?}", result.modules_failed);
+            bail!(
+                "Some modules failed to recover: {:?}",
+                result.modules_failed
+            );
         }
-        
+
         Ok(())
     }
 
@@ -405,12 +427,12 @@ impl RecoveryManager {
         state: &serde_json::Value,
     ) -> Result<Vec<StateChange>> {
         let mut changes = Vec::new();
-        
+
         // Would integrate with actual module state management
         // This is a placeholder implementation
-        
+
         debug!("Applying state to module: {}", module_id);
-        
+
         if let serde_json::Value::Object(fields) = state {
             for (field, value) in fields {
                 changes.push(StateChange {
@@ -421,7 +443,7 @@ impl RecoveryManager {
                 });
             }
         }
-        
+
         Ok(changes)
     }
 
@@ -429,43 +451,47 @@ impl RecoveryManager {
     async fn verify_recovery(&self, expected_state: &serde_json::Value) -> Result<()> {
         // Would compare actual state with expected
         // This is a placeholder implementation
-        
+
         debug!("Verifying recovery");
-        
+
         // Check that modules are responsive
         // Check that state matches expected
-        
+
         Ok(())
     }
 
     /// Rollback a failed recovery
     async fn rollback_recovery(&self, recovery_id: &str) -> Result<()> {
         warn!("Rolling back recovery: {}", recovery_id);
-        
+
         // Would restore to pre-recovery state
         // This requires maintaining a pre-recovery snapshot
-        
+
         Ok(())
     }
 
     /// Get recovery status
     pub async fn get_status(&self, recovery_id: &str) -> Option<RecoveryStatus> {
-        self.active_recoveries.read().await.get(recovery_id).cloned()
+        self.active_recoveries
+            .read()
+            .await
+            .get(recovery_id)
+            .cloned()
     }
 
     /// Cancel an active recovery
     pub async fn cancel_recovery(&self, recovery_id: &str) -> Result<()> {
         let mut active = self.active_recoveries.write().await;
-        
+
         if let Some(status) = active.remove(recovery_id) {
             info!("Cancelled recovery: {}", recovery_id);
-            
+
             // Rollback if needed
             if status.phase != RecoveryPhase::Completed {
                 self.rollback_recovery(recovery_id).await?;
             }
         }
-        
+
         Ok(())
     }
 
@@ -477,10 +503,10 @@ impl RecoveryManager {
     /// Get recovery statistics
     pub async fn get_stats(&self) -> RecoveryStats {
         let history = self.history.read().await;
-        
+
         let total = history.len();
         let successful = history.iter().filter(|r| r.result.success).count();
-        
+
         RecoveryStats {
             total_recoveries: total,
             successful,
@@ -517,7 +543,7 @@ impl SnapshotManager {
     /// Create a new snapshot manager
     pub fn new(snapshots_dir: PathBuf, max_snapshots: usize) -> Result<Self> {
         std::fs::create_dir_all(&snapshots_dir)?;
-        
+
         Ok(Self {
             snapshots_dir,
             snapshots: Arc::new(RwLock::new(HashMap::new())),
@@ -535,10 +561,10 @@ impl SnapshotManager {
     ) -> Result<SnapshotMetadata> {
         let id = format!("snap-{}", uuid::Uuid::new_v4());
         let now = chrono::Utc::now();
-        
+
         // Calculate size
         let size = data.to_string().len() as u64;
-        
+
         // Save snapshot file
         let snapshot = StateSnapshot {
             id: id.clone(),
@@ -550,10 +576,10 @@ impl SnapshotManager {
             metadata: HashMap::new(),
             checksum: String::new(), // Would compute
         };
-        
+
         let snapshot_path = self.snapshots_dir.join(format!("{}.json", id));
         fs::write(&snapshot_path, serde_json::to_string_pretty(&snapshot)?).await?;
-        
+
         // Create metadata
         let metadata = SnapshotMetadata {
             id: id.clone(),
@@ -567,13 +593,16 @@ impl SnapshotManager {
             description: String::new(),
             tags: vec![module_id.to_string()],
         };
-        
+
         // Store metadata
-        self.snapshots.write().await.insert(id.clone(), metadata.clone());
-        
+        self.snapshots
+            .write()
+            .await
+            .insert(id.clone(), metadata.clone());
+
         // Cleanup old snapshots
         self.cleanup_old_snapshots().await?;
-        
+
         Ok(metadata)
     }
 
@@ -591,25 +620,25 @@ impl SnapshotManager {
     pub async fn delete_snapshot(&self, id: &str) -> Result<()> {
         // Remove from metadata
         self.snapshots.write().await.remove(id);
-        
+
         // Remove file
         let snapshot_path = self.snapshots_dir.join(format!("{}.json", id));
         if snapshot_path.exists() {
             fs::remove_file(&snapshot_path).await?;
         }
-        
+
         Ok(())
     }
 
     /// Cleanup old snapshots
     async fn cleanup_old_snapshots(&self) -> Result<()> {
         let mut snapshots = self.snapshots.write().await;
-        
+
         if snapshots.len() > self.max_snapshots {
             // Sort by creation time
             let mut sorted: Vec<_> = snapshots.iter().collect();
             sorted.sort_by(|a, b| b.1.created_at.cmp(&a.1.created_at));
-            
+
             // Remove oldest
             for (_, metadata) in sorted.into_iter().skip(self.max_snapshots) {
                 let snapshot_path = self.snapshots_dir.join(format!("{}.json", metadata.id));
@@ -619,7 +648,7 @@ impl SnapshotManager {
                 snapshots.remove(&metadata.id);
             }
         }
-        
+
         Ok(())
     }
 }
@@ -631,7 +660,7 @@ mod tests {
     #[tokio::test]
     async fn test_recovery_config() {
         let config = RecoveryConfig::default();
-        
+
         assert_eq!(config.max_concurrent, 3);
         assert_eq!(config.max_retries, 3);
         assert!(config.verify_after);
@@ -640,30 +669,28 @@ mod tests {
     #[tokio::test]
     async fn test_recovery_manager_create() {
         let migrator = Arc::new(StateMigrator::new());
-        let manager = RecoveryManager::with_defaults(
-            migrator,
-            PathBuf::from("/tmp/test-recovery"),
-        ).unwrap();
-        
+        let manager =
+            RecoveryManager::with_defaults(migrator, PathBuf::from("/tmp/test-recovery")).unwrap();
+
         assert!(manager.get_history().await.is_empty());
     }
 
     #[tokio::test]
     async fn test_snapshot_manager() {
-        let manager = SnapshotManager::new(
-            PathBuf::from("/tmp/test-snapshots"),
-            10,
-        ).unwrap();
-        
-        let metadata = manager.create_snapshot(
-            "test-module",
-            "1.0.0",
-            SnapshotType::Full,
-            serde_json::json!({"test": "data"}),
-        ).await.unwrap();
-        
+        let manager = SnapshotManager::new(PathBuf::from("/tmp/test-snapshots"), 10).unwrap();
+
+        let metadata = manager
+            .create_snapshot(
+                "test-module",
+                "1.0.0",
+                SnapshotType::Full,
+                serde_json::json!({"test": "data"}),
+            )
+            .await
+            .unwrap();
+
         assert!(metadata.id.starts_with("snap-"));
-        
+
         let snapshots = manager.list_snapshots().await;
         assert_eq!(snapshots.len(), 1);
     }

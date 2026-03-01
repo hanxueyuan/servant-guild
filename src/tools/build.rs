@@ -150,7 +150,9 @@ impl BuildTools {
                 result.wasm_size = Some(metadata.len());
             }
             Err(e) => {
-                result.errors.push(format!("Wasm compilation failed: {}", e));
+                result
+                    .errors
+                    .push(format!("Wasm compilation failed: {}", e));
                 result.build_time = start_time.elapsed();
                 return Ok(result);
             }
@@ -226,9 +228,7 @@ impl BuildTools {
     /// Compile to Wasm
     async fn compile_wasm(&self, config: &BuildConfig) -> Result<PathBuf> {
         let mut cmd = Command::new("cargo");
-        cmd.arg("build")
-            .arg("--target")
-            .arg(&config.target);
+        cmd.arg("build").arg("--target").arg(&config.target);
 
         if config.release {
             cmd.arg("--release");
@@ -244,10 +244,7 @@ impl BuildTools {
         }
 
         // Find the generated Wasm file
-        let wasm_dir = self
-            .work_dir
-            .join("target")
-            .join(&config.target);
+        let wasm_dir = self.work_dir.join("target").join(&config.target);
 
         let target_dir = if config.release {
             wasm_dir.join("release")

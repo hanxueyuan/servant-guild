@@ -14,11 +14,11 @@
 //! - Critical decisions: Require unanimous approval (5/5)
 //! - Owner has veto power on any proposal
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use anyhow::{bail, Result};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use anyhow::{bail, Result};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub mod constitution;
 pub mod engine;
@@ -29,10 +29,10 @@ pub mod vote;
 // Re-exports
 pub use constitution::{Constitution, DecisionType, GovernanceRule, QuorumType};
 pub use engine::ConsensusEngine;
-pub use proposal::{Proposal, ProposalStatus, VoteRecord, VoteCounts};
+pub use proposal::{Proposal, ProposalStatus, VoteCounts, VoteRecord};
 pub use update_proposal::{
-    BehaviorChange, ImpactLevel, PolicyChange, RiskLevel, RollbackPlan,
-    TestResults, UpdateProposal, UpdateProposalBuilder, UpdateType,
+    BehaviorChange, ImpactLevel, PolicyChange, RiskLevel, RollbackPlan, TestResults,
+    UpdateProposal, UpdateProposalBuilder, UpdateType,
 };
 pub use vote::Vote;
 

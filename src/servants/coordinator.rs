@@ -7,15 +7,15 @@
 //! - Tracking task progress and dependencies
 //! - Aggregating results
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::{
-    Servant, ServantId, ServantRole, ServantStatus, ServantTask, ServantResult, ServantError,
+    Servant, ServantError, ServantId, ServantResult, ServantRole, ServantStatus, ServantTask,
 };
 use crate::consensus::{ConsensusEngine, DecisionType, Vote};
 
@@ -133,25 +133,25 @@ impl Coordinator {
             task_history: RwLock::new(Vec::new()),
         }
     }
-    
+
     /// Set the consensus engine
     pub fn with_consensus(mut self, consensus: Arc<ConsensusEngine>) -> Self {
         self.consensus = Some(consensus);
         self
     }
-    
+
     /// Process a user request with full coordination workflow
     pub async fn process_request(&self, request: String) -> Result<String, ServantError> {
         // Check if ready
         if *self.status.read() != ServantStatus::Ready {
             return Err(ServantError::NotReady("Coordinator not ready".to_string()));
         }
-        
+
         // Mark as busy
         *self.status.write() = ServantStatus::Busy;
-        
+
         println!("[Coordinator] Processing request: {}", request);
-        
+
         // Create coordinated task
         let task_id = uuid::Uuid::new_v4().to_string();
         let coordinated_task = CoordinatedTask {
@@ -162,21 +162,23 @@ impl Coordinator {
             started_at: Utc::now(),
             results: HashMap::new(),
         };
-        
-        self.active_tasks.write().insert(task_id.clone(), coordinated_task);
-        
+
+        self.active_tasks
+            .write()
+            .insert(task_id.clone(), coordinated_task);
+
         // Step 1: Decompose the task
         let sub_tasks = self.decompose_task(&task_id).await?;
         println!("[Coordinator] Created {} sub-tasks", sub_tasks.len());
-        
+
         // Step 2: Assign sub-tasks to workers
         self.assign_subtasks(&task_id).await?;
-        
+
         // Step 3: Simulate execution (in real implementation, workers would execute these)
         for sub_task in sub_tasks.iter() {
             let mut tasks = self.active_tasks.write();
             let coordinated = tasks.get_mut(&task_id).unwrap();
-            
+
             // Find and update the sub-task
             for st in &mut coordinated.sub_tasks {
                 if st.id == sub_task.id {
@@ -186,53 +188,61 @@ impl Coordinator {
                         serde_json::json!({
                             "status": "success",
                             "result": format!("Executed: {}", st.instructions)
-                        })
+                        }),
                     );
                     break;
                 }
             }
         }
-        
+
         // Step 4: Aggregate results
         let final_result = self.aggregate_results(&task_id).await?;
-        
+
         // Mark as ready again
         *self.status.write() = ServantStatus::Ready;
-        
+
         let result_str = serde_json::to_string_pretty(&final_result)
             .unwrap_or_else(|_| "Failed to serialize result".to_string());
-        
+
         println!("[Coordinator] Task completed successfully");
-        
+
         Ok(result_str)
     }
-    
+
     /// Decompose a task into sub-tasks using intelligent analysis
     pub async fn decompose_task(&self, task_id: &str) -> Result<Vec<SubTask>, ServantError> {
         let mut tasks = self.active_tasks.write();
         let coordinated = tasks
             .get_mut(task_id)
             .ok_or_else(|| ServantError::InvalidTask(format!("Task {} not found", task_id)))?;
-        
+
         coordinated.status = CoordinationStatus::Decomposing;
-        
+
         // Analyze the request and decompose accordingly
         let request = &coordinated.request;
         let sub_tasks = self.analyze_and_decompose(request, task_id)?;
-        
+
         coordinated.sub_tasks = sub_tasks.clone();
         coordinated.status = CoordinationStatus::Assigning;
-        
-        println!("[Coordinator] Decomposed task '{}' into {} sub-tasks", request, sub_tasks.len());
-        
+
+        println!(
+            "[Coordinator] Decomposed task '{}' into {} sub-tasks",
+            request,
+            sub_tasks.len()
+        );
+
         Ok(sub_tasks)
     }
-    
+
     /// Analyze a request and decompose it into sub-tasks
-    fn analyze_and_decompose(&self, request: &str, task_id: &str) -> Result<Vec<SubTask>, ServantError> {
+    fn analyze_and_decompose(
+        &self,
+        request: &str,
+        task_id: &str,
+    ) -> Result<Vec<SubTask>, ServantError> {
         let request_lower = request.to_lowercase();
         let mut sub_tasks = Vec::new();
-        
+
         // Analyze task complexity and create appropriate sub-tasks
         if request_lower.contains("update") && request_lower.contains("readme") {
             // Task: Update README
@@ -240,12 +250,13 @@ impl Coordinator {
                 id: format!("{}-1", task_id),
                 parent_id: task_id.to_string(),
                 work_type: "read".to_string(),
-                instructions: "Read the current README.md file to understand its structure".to_string(),
+                instructions: "Read the current README.md file to understand its structure"
+                    .to_string(),
                 assignee: Some("worker".to_string()),
                 status: SubTaskStatus::Pending,
                 dependencies: Vec::new(),
             });
-            
+
             sub_tasks.push(SubTask {
                 id: format!("{}-2", task_id),
                 parent_id: task_id.to_string(),
@@ -255,7 +266,7 @@ impl Coordinator {
                 status: SubTaskStatus::Pending,
                 dependencies: vec![format!("{}-1", task_id)],
             });
-            
+
             sub_tasks.push(SubTask {
                 id: format!("{}-3", task_id),
                 parent_id: task_id.to_string(),
@@ -271,12 +282,13 @@ impl Coordinator {
                 id: format!("{}-1", task_id),
                 parent_id: task_id.to_string(),
                 work_type: "investigate".to_string(),
-                instructions: "Investigate the bug by reading relevant code and error logs".to_string(),
+                instructions: "Investigate the bug by reading relevant code and error logs"
+                    .to_string(),
                 assignee: Some("worker".to_string()),
                 status: SubTaskStatus::Pending,
                 dependencies: Vec::new(),
             });
-            
+
             sub_tasks.push(SubTask {
                 id: format!("{}-2", task_id),
                 parent_id: task_id.to_string(),
@@ -286,7 +298,7 @@ impl Coordinator {
                 status: SubTaskStatus::Pending,
                 dependencies: vec![format!("{}-1", task_id)],
             });
-            
+
             sub_tasks.push(SubTask {
                 id: format!("{}-3", task_id),
                 parent_id: task_id.to_string(),
@@ -319,55 +331,66 @@ impl Coordinator {
                 dependencies: Vec::new(),
             });
         }
-        
+
         Ok(sub_tasks)
     }
-    
+
     /// Assign sub-tasks to available servants
     pub async fn assign_subtasks(&self, task_id: &str) -> Result<(), ServantError> {
         let mut tasks = self.active_tasks.write();
         let coordinated = tasks
             .get_mut(task_id)
             .ok_or_else(|| ServantError::InvalidTask(format!("Task {} not found", task_id)))?;
-        
+
         coordinated.status = CoordinationStatus::Assigning;
-        
+
         // Assign each sub-task to an appropriate servant
         for sub_task in &mut coordinated.sub_tasks {
             if sub_task.status == SubTaskStatus::Pending {
                 // Check dependencies are satisfied
                 let deps_satisfied = sub_task.dependencies.iter().all(|dep_id| {
-                    coordinated.sub_tasks.iter().any(|st| st.id == *dep_id && st.status == SubTaskStatus::Completed)
+                    coordinated
+                        .sub_tasks
+                        .iter()
+                        .any(|st| st.id == *dep_id && st.status == SubTaskStatus::Completed)
                 });
-                
+
                 if deps_satisfied {
                     // Assign to worker for now
                     sub_task.assignee = Some("worker".to_string());
                     sub_task.status = SubTaskStatus::Assigned;
-                    println!("[Coordinator] Assigned sub-task '{}' to worker", sub_task.id);
+                    println!(
+                        "[Coordinator] Assigned sub-task '{}' to worker",
+                        sub_task.id
+                    );
                 } else {
                     sub_task.status = SubTaskStatus::Blocked;
                 }
             }
         }
-        
+
         coordinated.status = CoordinationStatus::Waiting;
         Ok(())
     }
-    
+
     /// Aggregate results from completed sub-tasks
-    pub async fn aggregate_results(&self, task_id: &str) -> Result<serde_json::Value, ServantError> {
+    pub async fn aggregate_results(
+        &self,
+        task_id: &str,
+    ) -> Result<serde_json::Value, ServantError> {
         let mut tasks = self.active_tasks.write();
         let coordinated = tasks
             .get_mut(task_id)
             .ok_or_else(|| ServantError::InvalidTask(format!("Task {} not found", task_id)))?;
-        
+
         coordinated.status = CoordinationStatus::Aggregating;
-        
+
         // Combine all sub-task results
-        let all_completed = coordinated.sub_tasks.iter()
+        let all_completed = coordinated
+            .sub_tasks
+            .iter()
             .all(|st| st.status == SubTaskStatus::Completed || st.status == SubTaskStatus::Failed);
-        
+
         if all_completed {
             let aggregated = serde_json::json!({
                 "task_id": task_id,
@@ -376,21 +399,23 @@ impl Coordinator {
                 "results": coordinated.results,
                 "status": "completed"
             });
-            
+
             coordinated.status = CoordinationStatus::Completed;
-            
+
             // Move to history
             let completed = CompletedTask {
                 id: task_id.to_string(),
                 request: coordinated.request.clone(),
                 result: aggregated.clone(),
-                duration_ms: (Utc::now() - coordinated.started_at).num_milliseconds().max(0) as u64,
+                duration_ms: (Utc::now() - coordinated.started_at)
+                    .num_milliseconds()
+                    .max(0) as u64,
                 sub_task_count: coordinated.sub_tasks.len(),
                 completed_at: Utc::now(),
             };
-            
+
             self.task_history.write().push(completed);
-            
+
             Ok(aggregated)
         } else {
             coordinated.status = CoordinationStatus::Waiting;
@@ -413,35 +438,42 @@ impl Coordinator {
         let coordinated = tasks
             .get_mut(task_id)
             .ok_or_else(|| ServantError::InvalidTask(format!("Task {} not found", task_id)))?;
-        
+
         // Update sub-task status
-        if let Some(sub_task) = coordinated.sub_tasks.iter_mut().find(|s| s.id == sub_task_id) {
+        if let Some(sub_task) = coordinated
+            .sub_tasks
+            .iter_mut()
+            .find(|s| s.id == sub_task_id)
+        {
             sub_task.status = SubTaskStatus::Completed;
         }
-        
+
         // Store result
         coordinated.results.insert(sub_task_id.to_string(), result);
-        
+
         // Check if all sub-tasks complete
-        let all_complete = coordinated.sub_tasks.iter().all(|s| s.status == SubTaskStatus::Completed);
-        
+        let all_complete = coordinated
+            .sub_tasks
+            .iter()
+            .all(|s| s.status == SubTaskStatus::Completed);
+
         if all_complete {
             coordinated.status = CoordinationStatus::Aggregating;
         }
-        
+
         Ok(())
     }
-    
+
     /// Get active tasks
     pub fn get_active_tasks(&self) -> Vec<CoordinatedTask> {
         self.active_tasks.read().values().cloned().collect()
     }
-    
+
     /// Get task history
     pub fn get_task_history(&self) -> Vec<CompletedTask> {
         self.task_history.read().clone()
     }
-    
+
     /// Vote on a proposal (as owner, has veto power)
     pub async fn vote_on_proposal(
         &self,
@@ -450,16 +482,18 @@ impl Coordinator {
         reason: String,
     ) -> Result<(), ServantError> {
         if let Some(consensus) = &self.consensus {
-            consensus.cast_vote(proposal_id, self.id.as_str().to_string(), vote, reason)
+            consensus
+                .cast_vote(proposal_id, self.id.as_str().to_string(), vote, reason)
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
         }
         Ok(())
     }
-    
+
     /// Veto a proposal (owner privilege)
     pub async fn veto_proposal(&self, proposal_id: &str) -> Result<(), ServantError> {
         if let Some(consensus) = &self.consensus {
-            consensus.veto_proposal(proposal_id, self.id.as_str())
+            consensus
+                .veto_proposal(proposal_id, self.id.as_str())
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
         }
         Ok(())
@@ -477,20 +511,20 @@ impl Servant for Coordinator {
     fn id(&self) -> &ServantId {
         &self.id
     }
-    
+
     fn role(&self) -> ServantRole {
         ServantRole::Coordinator
     }
-    
+
     fn status(&self) -> ServantStatus {
         self.status.read().clone()
     }
-    
+
     async fn start(&mut self) -> Result<(), ServantError> {
         *self.status.write() = ServantStatus::Ready;
         Ok(())
     }
-    
+
     async fn stop(&mut self) -> Result<(), ServantError> {
         *self.status.write() = ServantStatus::Stopping;
         // Wait for active tasks to complete
@@ -498,7 +532,7 @@ impl Servant for Coordinator {
         *self.status.write() = ServantStatus::Paused;
         Ok(())
     }
-    
+
     fn capabilities(&self) -> Vec<String> {
         vec![
             "task_decomposition".to_string(),
@@ -520,32 +554,34 @@ mod tests {
         assert_eq!(coordinator.role(), ServantRole::Coordinator);
         assert_eq!(coordinator.status(), ServantStatus::Starting);
     }
-    
+
     #[tokio::test]
     async fn test_coordinator_start_stop() {
         let mut coordinator = Coordinator::new();
-        
+
         coordinator.start().await.unwrap();
         assert_eq!(coordinator.status(), ServantStatus::Ready);
-        
+
         coordinator.stop().await.unwrap();
         assert_eq!(coordinator.status(), ServantStatus::Paused);
     }
-    
+
     #[tokio::test]
     async fn test_process_request() {
         let mut coordinator = Coordinator::new();
         coordinator.start().await.unwrap();
-        
-        let result = coordinator.process_request("Test request".to_string()).await;
+
+        let result = coordinator
+            .process_request("Test request".to_string())
+            .await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_decompose_task() {
         let mut coordinator = Coordinator::new();
         coordinator.start().await.unwrap();
-        
+
         // First create a task
         let task_id = uuid::Uuid::new_v4().to_string();
         coordinator.active_tasks.write().insert(
@@ -559,7 +595,7 @@ mod tests {
                 results: HashMap::new(),
             },
         );
-        
+
         let sub_tasks = coordinator.decompose_task(&task_id).await.unwrap();
         assert!(!sub_tasks.is_empty());
     }

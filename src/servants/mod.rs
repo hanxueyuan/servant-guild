@@ -20,21 +20,21 @@
 //! - Can be invoked via Host interface
 //! - Maintains its own state and memory
 
-pub mod coordinator;
-pub mod worker;
-pub mod warden;
-pub mod speaker;
 pub mod contractor;
+pub mod coordinator;
+pub mod speaker;
+pub mod warden;
+pub mod worker;
 
 // Re-exports
-pub use coordinator::Coordinator;
-pub use worker::Worker;
-pub use warden::Warden;
-pub use speaker::Speaker;
 pub use contractor::Contractor;
+pub use coordinator::Coordinator;
+pub use speaker::Speaker;
+pub use warden::Warden;
+pub use worker::Worker;
 
-use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 /// Unique identifier for a servant
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -44,7 +44,7 @@ impl ServantId {
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
-    
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -82,7 +82,7 @@ impl ServantRole {
             Self::Contractor,
         ]
     }
-    
+
     /// Get the default ID for this role
     pub fn default_id(&self) -> &'static str {
         match self {
@@ -93,7 +93,7 @@ impl ServantRole {
             Self::Contractor => "contractor",
         }
     }
-    
+
     /// Get a human-readable description of this role
     pub fn description(&self) -> &'static str {
         match self {
@@ -128,19 +128,19 @@ pub enum ServantStatus {
 pub trait Servant: Send + Sync {
     /// Get the servant's ID
     fn id(&self) -> &ServantId;
-    
+
     /// Get the servant's role
     fn role(&self) -> ServantRole;
-    
+
     /// Get the current status
     fn status(&self) -> ServantStatus;
-    
+
     /// Start the servant
     async fn start(&mut self) -> Result<(), ServantError>;
-    
+
     /// Stop the servant gracefully
     async fn stop(&mut self) -> Result<(), ServantError>;
-    
+
     /// Get the servant's capabilities
     fn capabilities(&self) -> Vec<String>;
 }
@@ -150,19 +150,19 @@ pub trait Servant: Send + Sync {
 pub enum ServantError {
     #[error("Servant is not ready: {0}")]
     NotReady(String),
-    
+
     #[error("Servant is already running")]
     AlreadyRunning,
-    
+
     #[error("Servant failed to start: {0}")]
     StartupFailed(String),
-    
+
     #[error("Task execution failed: {0}")]
     ExecutionFailed(String),
-    
+
     #[error("Invalid task: {0}")]
     InvalidTask(String),
-    
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -195,7 +195,7 @@ impl ServantTask {
             created_at: chrono::Utc::now(),
         }
     }
-    
+
     pub fn with_priority(mut self, priority: u8) -> Self {
         self.priority = priority.min(10);
         self
@@ -227,7 +227,7 @@ impl ServantResult {
             duration_ms,
         }
     }
-    
+
     pub fn failure(task_id: String, error: String, duration_ms: u64) -> Self {
         Self {
             task_id,

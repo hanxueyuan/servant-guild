@@ -63,7 +63,7 @@ impl NetworkIsolation {
     /// Create new network isolation manager
     pub fn new() -> Self {
         let mut policies = HashMap::new();
-        
+
         // Default deny-all policy
         policies.insert(
             "deny-all".to_string(),
@@ -76,23 +76,23 @@ impl NetworkIsolation {
                 enabled: true,
             },
         );
-        
+
         Self {
             policies,
             connections: HashMap::new(),
         }
     }
-    
+
     /// Add network policy
     pub fn add_policy(&mut self, policy: NetworkPolicy) {
         self.policies.insert(policy.name.clone(), policy);
     }
-    
+
     /// Remove network policy
     pub fn remove_policy(&mut self, name: &str) -> bool {
         self.policies.remove(name).is_some()
     }
-    
+
     /// Check if connection is allowed
     pub fn is_connection_allowed(
         &self,
@@ -107,47 +107,49 @@ impl NetworkIsolation {
             .values()
             .filter(|p| p.enabled && p.selectors.iter().any(|s| source.starts_with(s)))
             .collect();
-        
+
         // Check egress from source
         let egress_allowed = source_policies.iter().any(|policy| {
             policy.egress.iter().any(|rule| {
                 let dest_matches = rule.to == "*" || destination.starts_with(&rule.to);
                 let port_matches = rule.ports.is_empty() || rule.ports.contains(&port);
-                let protocol_matches = matches!(rule.protocol, Protocol::Any) || rule.protocol == protocol;
-                
+                let protocol_matches =
+                    matches!(rule.protocol, Protocol::Any) || rule.protocol == protocol;
+
                 dest_matches && port_matches && protocol_matches
             })
         });
-        
+
         if !egress_allowed {
             return false;
         }
-        
+
         // Get applicable policies for destination
         let dest_policies: Vec<_> = self
             .policies
             .values()
             .filter(|p| p.enabled && p.selectors.iter().any(|s| destination.starts_with(s)))
             .collect();
-        
+
         // Check ingress to destination
         let ingress_allowed = dest_policies.iter().any(|policy| {
             policy.ingress.iter().any(|rule| {
                 let source_matches = rule.from == "*" || source.starts_with(&rule.from);
                 let port_matches = rule.ports.is_empty() || rule.ports.contains(&port);
-                let protocol_matches = matches!(rule.protocol, Protocol::Any) || rule.protocol == protocol;
-                
+                let protocol_matches =
+                    matches!(rule.protocol, Protocol::Any) || rule.protocol == protocol;
+
                 source_matches && port_matches && protocol_matches
             })
         });
-        
+
         ingress_allowed
     }
-    
+
     /// Get allowed destinations for source
     pub fn allowed_destinations(&self, source: &str) -> Vec<String> {
         let mut destinations = Vec::new();
-        
+
         for policy in self.policies.values() {
             if policy.enabled && policy.selectors.iter().any(|s| source.starts_with(s)) {
                 for rule in &policy.egress {
@@ -157,12 +159,12 @@ impl NetworkIsolation {
                 }
             }
         }
-        
+
         destinations.sort();
         destinations.dedup();
         destinations
     }
-    
+
     /// Record active connection
     pub fn record_connection(&mut self, source: &str, destination: &str) {
         self.connections
@@ -170,12 +172,12 @@ impl NetworkIsolation {
             .or_default()
             .insert(destination.to_string());
     }
-    
+
     /// Get active connections for source
     pub fn get_connections(&self, source: &str) -> Option<&HashSet<String>> {
         self.connections.get(source)
     }
-    
+
     /// Clear all connections
     pub fn clear_connections(&mut self) {
         self.connections.clear();
@@ -211,19 +213,19 @@ impl NetworkZone {
             allowed_inbound: vec![],
         }
     }
-    
+
     /// Add CIDR range
     pub fn add_cidr(&mut self, cidr: &str) {
         self.cidrs.push(cidr.to_string());
     }
-    
+
     /// Allow outbound to zone
     pub fn allow_outbound(&mut self, zone: &str) {
         if !self.allowed_outbound.contains(&zone.to_string()) {
             self.allowed_outbound.push(zone.to_string());
         }
     }
-    
+
     /// Allow inbound from zone
     pub fn allow_inbound(&mut self, zone: &str) {
         if !self.allowed_inbound.contains(&zone.to_string()) {
@@ -252,7 +254,6 @@ pub fn create_default_policies() -> Vec<NetworkPolicy> {
             priority: 100,
             enabled: true,
         },
-        
         // Allow database access from agents
         NetworkPolicy {
             name: "agent-database".to_string(),
@@ -266,7 +267,6 @@ pub fn create_default_policies() -> Vec<NetworkPolicy> {
             priority: 90,
             enabled: true,
         },
-        
         // Allow Redis access from agents
         NetworkPolicy {
             name: "agent-redis".to_string(),
@@ -280,23 +280,19 @@ pub fn create_default_policies() -> Vec<NetworkPolicy> {
             priority: 90,
             enabled: true,
         },
-        
         // Allow external API calls from agents
         NetworkPolicy {
             name: "agent-external-api".to_string(),
             ingress: vec![],
-            egress: vec![
-                EgressRule {
-                    to: "0.0.0.0/0".to_string(),
-                    ports: vec![443],
-                    protocol: Protocol::TCP,
-                },
-            ],
+            egress: vec![EgressRule {
+                to: "0.0.0.0/0".to_string(),
+                ports: vec![443],
+                protocol: Protocol::TCP,
+            }],
             selectors: vec!["agent:".to_string()],
             priority: 80,
             enabled: true,
         },
-        
         // Deny database access from external
         NetworkPolicy {
             name: "database-isolation".to_string(),
@@ -316,11 +312,11 @@ pub fn create_default_policies() -> Vec<NetworkPolicy> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_network_isolation() {
         let mut isolation = NetworkIsolation::new();
-        
+
         // Add policy allowing agent to database
         isolation.add_policy(NetworkPolicy {
             name: "test-policy".to_string(),
@@ -334,7 +330,7 @@ mod tests {
             priority: 100,
             enabled: true,
         });
-        
+
         // Should allow agent to database
         assert!(isolation.is_connection_allowed(
             "agent:coordinator",
@@ -342,7 +338,7 @@ mod tests {
             5432,
             Protocol::TCP
         ));
-        
+
         // Should deny agent to external
         assert!(!isolation.is_connection_allowed(
             "agent:coordinator",
@@ -351,13 +347,13 @@ mod tests {
             Protocol::TCP
         ));
     }
-    
+
     #[test]
     fn test_network_zone() {
         let mut zone = NetworkZone::new("production");
         zone.add_cidr("10.0.0.0/16");
         zone.allow_outbound("monitoring");
-        
+
         assert_eq!(zone.cidrs.len(), 1);
         assert!(zone.allowed_outbound.contains(&"monitoring".to_string()));
     }

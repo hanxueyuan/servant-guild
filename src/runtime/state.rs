@@ -1,13 +1,13 @@
-use wasmtime_wasi::{WasiCtx, WasiView};
-use wasmtime::component::ResourceTable;
-use std::sync::Arc;
-use crate::providers::traits::Provider;
-use crate::tools::traits::Tool;
-use crate::safety::audit::AuditLogger;
-use crate::memory::Memory;
 use crate::consensus::ConsensusEngine;
+use crate::memory::Memory;
+use crate::providers::traits::Provider;
+use crate::safety::audit::AuditLogger;
 use crate::safety::TransactionManager;
+use crate::tools::traits::Tool;
 use std::collections::HashMap;
+use std::sync::Arc;
+use wasmtime::component::ResourceTable;
+use wasmtime_wasi::{WasiCtx, WasiView};
 
 pub struct HostState {
     pub wasi: WasiCtx,

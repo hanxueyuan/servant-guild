@@ -24,70 +24,98 @@ pub struct Constitution {
 impl Default for Constitution {
     fn default() -> Self {
         let mut rules = HashMap::new();
-        
+
         // Code changes require normal quorum
-        rules.insert(DecisionType::CodeChange, GovernanceRule {
-            requires_vote: true,
-            quorum_type: QuorumType::Normal,
-            description: "Code modifications require guild approval".to_string(),
-        });
-        
+        rules.insert(
+            DecisionType::CodeChange,
+            GovernanceRule {
+                requires_vote: true,
+                quorum_type: QuorumType::Normal,
+                description: "Code modifications require guild approval".to_string(),
+            },
+        );
+
         // Configuration changes require normal quorum
-        rules.insert(DecisionType::ConfigChange, GovernanceRule {
-            requires_vote: true,
-            quorum_type: QuorumType::Normal,
-            description: "Configuration changes require guild approval".to_string(),
-        });
-        
+        rules.insert(
+            DecisionType::ConfigChange,
+            GovernanceRule {
+                requires_vote: true,
+                quorum_type: QuorumType::Normal,
+                description: "Configuration changes require guild approval".to_string(),
+            },
+        );
+
         // System updates require critical quorum
-        rules.insert(DecisionType::SystemUpdate, GovernanceRule {
-            requires_vote: true,
-            quorum_type: QuorumType::Critical,
-            description: "System updates require unanimous approval".to_string(),
-        });
-        
+        rules.insert(
+            DecisionType::SystemUpdate,
+            GovernanceRule {
+                requires_vote: true,
+                quorum_type: QuorumType::Critical,
+                description: "System updates require unanimous approval".to_string(),
+            },
+        );
+
         // Security changes require critical quorum
-        rules.insert(DecisionType::SecurityChange, GovernanceRule {
-            requires_vote: true,
-            quorum_type: QuorumType::Critical,
-            description: "Security policy changes require unanimous approval".to_string(),
-        });
-        
+        rules.insert(
+            DecisionType::SecurityChange,
+            GovernanceRule {
+                requires_vote: true,
+                quorum_type: QuorumType::Critical,
+                description: "Security policy changes require unanimous approval".to_string(),
+            },
+        );
+
         // Member addition requires critical quorum
-        rules.insert(DecisionType::MemberAdd, GovernanceRule {
-            requires_vote: true,
-            quorum_type: QuorumType::Critical,
-            description: "Adding new members requires unanimous approval".to_string(),
-        });
-        
+        rules.insert(
+            DecisionType::MemberAdd,
+            GovernanceRule {
+                requires_vote: true,
+                quorum_type: QuorumType::Critical,
+                description: "Adding new members requires unanimous approval".to_string(),
+            },
+        );
+
         // Member removal requires critical quorum
-        rules.insert(DecisionType::MemberRemove, GovernanceRule {
-            requires_vote: true,
-            quorum_type: QuorumType::Critical,
-            description: "Removing members requires unanimous approval".to_string(),
-        });
-        
+        rules.insert(
+            DecisionType::MemberRemove,
+            GovernanceRule {
+                requires_vote: true,
+                quorum_type: QuorumType::Critical,
+                description: "Removing members requires unanimous approval".to_string(),
+            },
+        );
+
         // Resource allocation requires normal quorum
-        rules.insert(DecisionType::ResourceAllocation, GovernanceRule {
-            requires_vote: true,
-            quorum_type: QuorumType::Normal,
-            description: "Resource allocation decisions require guild approval".to_string(),
-        });
-        
+        rules.insert(
+            DecisionType::ResourceAllocation,
+            GovernanceRule {
+                requires_vote: true,
+                quorum_type: QuorumType::Normal,
+                description: "Resource allocation decisions require guild approval".to_string(),
+            },
+        );
+
         // Emergency actions can be taken without vote but require audit
-        rules.insert(DecisionType::EmergencyAction, GovernanceRule {
-            requires_vote: false,
-            quorum_type: QuorumType::Auto,
-            description: "Emergency actions can be taken immediately but are audited".to_string(),
-        });
-        
+        rules.insert(
+            DecisionType::EmergencyAction,
+            GovernanceRule {
+                requires_vote: false,
+                quorum_type: QuorumType::Auto,
+                description: "Emergency actions can be taken immediately but are audited"
+                    .to_string(),
+            },
+        );
+
         // Routine operations don't require voting
-        rules.insert(DecisionType::RoutineOperation, GovernanceRule {
-            requires_vote: false,
-            quorum_type: QuorumType::Auto,
-            description: "Routine operations proceed automatically".to_string(),
-        });
-        
+        rules.insert(
+            DecisionType::RoutineOperation,
+            GovernanceRule {
+                requires_vote: false,
+                quorum_type: QuorumType::Auto,
+                description: "Routine operations proceed automatically".to_string(),
+            },
+        );
+
         Self {
             name: "ServantGuild Default Constitution".to_string(),
             version: 1,
@@ -109,7 +137,7 @@ impl Constitution {
             max_voting_duration_secs: 3600,
         }
     }
-    
+
     /// Check if a decision type requires voting
     pub fn requires_vote(&self, decision_type: &DecisionType) -> bool {
         self.rules
@@ -117,7 +145,7 @@ impl Constitution {
             .map(|r| r.requires_vote)
             .unwrap_or(true) // Default to requiring vote for unknown types
     }
-    
+
     /// Get the quorum type for a decision
     pub fn get_quorum_type(&self, decision_type: &DecisionType) -> QuorumType {
         self.rules
@@ -125,7 +153,7 @@ impl Constitution {
             .map(|r| r.quorum_type.clone())
             .unwrap_or(QuorumType::Normal)
     }
-    
+
     /// Add or update a governance rule
     pub fn set_rule(&mut self, decision_type: DecisionType, rule: GovernanceRule) {
         self.rules.insert(decision_type, rule);
@@ -188,11 +216,11 @@ mod tests {
     #[test]
     fn test_default_constitution() {
         let constitution = Constitution::default();
-        
+
         assert!(constitution.requires_vote(&DecisionType::CodeChange));
         assert!(constitution.requires_vote(&DecisionType::SecurityChange));
         assert!(!constitution.requires_vote(&DecisionType::RoutineOperation));
-        
+
         assert_eq!(
             constitution.get_quorum_type(&DecisionType::CodeChange),
             QuorumType::Normal
@@ -202,11 +230,11 @@ mod tests {
             QuorumType::Critical
         );
     }
-    
+
     #[test]
     fn test_custom_constitution() {
         let mut constitution = Constitution::new("Custom Rules".to_string(), 1);
-        
+
         constitution.set_rule(
             DecisionType::CodeChange,
             GovernanceRule {
@@ -215,7 +243,7 @@ mod tests {
                 description: "Auto-approve code changes".to_string(),
             },
         );
-        
+
         assert!(!constitution.requires_vote(&DecisionType::CodeChange));
     }
 }

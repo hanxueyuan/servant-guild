@@ -5,7 +5,7 @@
 // In 0.28.0, `wit_bindgen::generate!` creates a module that contains the bindings.
 // It seems `export_macro_name` just renames the private macro.
 //
-// Let's try to use the `with` option to map the world to a public module if possible, 
+// Let's try to use the `with` option to map the world to a public module if possible,
 // or simply assume we cannot wrap it easily without `pub_export_macro` (which might be in newer versions).
 //
 // Plan B: Inline the generate! call in each servant crate.
@@ -20,7 +20,7 @@
 // Wait, `wit-bindgen 0.28.0` CHANGELOG says: "The generate! macro now generates a macro named export! by default..."
 // And "Added a pub_export_macro configuration option to the generate! macro..."
 //
-// I tried `pub_export_macro` and it failed parsing. This suggests I might be on an older version than I think, 
+// I tried `pub_export_macro` and it failed parsing. This suggests I might be on an older version than I think,
 // OR `pub_export_macro` was added in 0.29+.
 // Let's try 0.30.0 (available: v0.53.1 according to previous log).
 
@@ -157,7 +157,7 @@
 // What if we clean `target`? I did that earlier.
 //
 // Let's try the simplest possible configuration that is known to work for libraries:
-// 
+//
 // ```rust
 // mod bindings {
 //     wit_bindgen::generate!({
@@ -252,7 +252,7 @@
 // Step 1: Remove `generate!` from `servant-sdk` (or keep it private just for types used within sdk if any).
 // Actually, `servant-sdk` should provide helpers.
 //
-// Let's make `servant-sdk` just a library that re-exports `wit-bindgen` and provides helper functions, 
+// Let's make `servant-sdk` just a library that re-exports `wit-bindgen` and provides helper functions,
 // but forces the user to call `generate!`.
 //
 // But `servant-sdk` types (like `Guest`) are needed.
@@ -319,4 +319,3 @@
 // This is the most reliable fix for Phase 1.
 
 pub fn setup() {}
-

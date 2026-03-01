@@ -3,7 +3,8 @@
 //! Provides Prometheus-compatible metrics for token usage and costs
 
 use crate::economic::*;
-use std::sync::atomic::{AtomicU64, AtomicF64, Ordering};
+use prometheus::core::AtomicF64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// Economic metrics collector
@@ -14,12 +15,12 @@ pub struct EconomicMetrics {
     requests_total: Arc<AtomicU64>,
     cache_hits: Arc<AtomicU64>,
     cache_misses: Arc<AtomicU64>,
-    
+
     // Gauges
     current_hourly_cost: Arc<AtomicF64>,
     current_daily_cost: Arc<AtomicF64>,
     budget_remaining_usd: Arc<AtomicF64>,
-    
+
     // Histograms (simplified as counters for now)
     latency_sum: Arc<AtomicU64>,
     latency_count: Arc<AtomicU64>,
@@ -41,30 +42,34 @@ impl EconomicMetrics {
             latency_count: Arc::new(AtomicU64::new(0)),
         }
     }
-    
+
     /// Record a token usage event
     pub fn record_usage(&self, usage: &TokenUsage) {
-        self.tokens_total.fetch_add(usage.total_tokens(), Ordering::Relaxed);
-        self.cost_total_usd.fetch_add(usage.cost_usd, Ordering::Relaxed);
+        self.tokens_total
+            .fetch_add(usage.total_tokens(), Ordering::Relaxed);
+        self.cost_total_usd
+            .fetch_add(usage.cost_usd, Ordering::Relaxed);
         self.requests_total.fetch_add(1, Ordering::Relaxed);
-        
+
         if usage.cached {
             self.cache_hits.fetch_add(1, Ordering::Relaxed);
         } else {
             self.cache_misses.fetch_add(1, Ordering::Relaxed);
         }
-        
-        self.latency_sum.fetch_add(usage.latency_ms, Ordering::Relaxed);
+
+        self.latency_sum
+            .fetch_add(usage.latency_ms, Ordering::Relaxed);
         self.latency_count.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     /// Update current cost gauges
     pub fn update_costs(&self, hourly: f64, daily: f64, remaining: f64) {
         self.current_hourly_cost.store(hourly, Ordering::Relaxed);
         self.current_daily_cost.store(daily, Ordering::Relaxed);
-        self.budget_remaining_usd.store(remaining, Ordering::Relaxed);
+        self.budget_remaining_usd
+            .store(remaining, Ordering::Relaxed);
     }
-    
+
     /// Export metrics in Prometheus format
     pub fn export_prometheus(&self) -> String {
         let tokens = self.tokens_total.load(Ordering::Relaxed);
@@ -77,19 +82,19 @@ impl EconomicMetrics {
         let remaining = self.budget_remaining_usd.load(Ordering::Relaxed);
         let latency_sum = self.latency_sum.load(Ordering::Relaxed);
         let latency_count = self.latency_count.load(Ordering::Relaxed);
-        
+
         let avg_latency = if latency_count > 0 {
             latency_sum as f64 / latency_count as f64
         } else {
             0.0
         };
-        
+
         let cache_hit_rate = if hits + misses > 0 {
             hits as f64 / (hits + misses) as f64 * 100.0
         } else {
             0.0
         };
-        
+
         format!(
             r#"# HELP servant_guild_tokens_total Total tokens used
 # TYPE servant_guild_tokens_total counter
@@ -143,7 +148,7 @@ servant_guild_avg_latency_ms {:.2}
             avg_latency
         )
     }
-    
+
     /// Get metrics as a structured format
     pub fn get_metrics(&self) -> EconomicMetricValues {
         EconomicMetricValues {
@@ -157,7 +162,7 @@ servant_guild_avg_latency_ms {:.2}
             budget_remaining_usd: self.budget_remaining_usd.load(Ordering::Relaxed),
         }
     }
-    
+
     /// Reset all metrics
     pub fn reset(&self) {
         self.tokens_total.store(0, Ordering::Relaxed);
@@ -195,11 +200,11 @@ pub struct EconomicMetricValues {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_record_usage() {
         let metrics = EconomicMetrics::new();
-        
+
         let mut usage = TokenUsage::new(
             "test".to_string(),
             LlmProvider::DeepSeek,
@@ -209,22 +214,22 @@ mod tests {
         usage.add_tokens(TokenType::Output, 500);
         usage.cost_usd = 0.01;
         usage.latency_ms = 500;
-        
+
         metrics.record_usage(&usage);
-        
+
         let values = metrics.get_metrics();
         assert_eq!(values.tokens_total, 1500);
         assert_eq!(values.cost_total_usd, 0.01);
         assert_eq!(values.requests_total, 1);
     }
-    
+
     #[test]
     fn test_prometheus_export() {
         let metrics = EconomicMetrics::new();
         metrics.update_costs(1.0, 5.0, 45.0);
-        
+
         let output = metrics.export_prometheus();
-        
+
         assert!(output.contains("servant_guild_tokens_total"));
         assert!(output.contains("servant_guild_cost_usd_total"));
         assert!(output.contains("servant_guild_hourly_cost_usd 1.000000"));

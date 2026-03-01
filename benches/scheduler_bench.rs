@@ -22,7 +22,7 @@ impl MockScheduler {
 
 fn benchmark_scheduler_enqueue(c: &mut Criterion) {
     let mut scheduler = MockScheduler::new();
-    
+
     c.bench_function("scheduler_enqueue", |b| {
         b.iter(|| {
             scheduler.enqueue(black_box(1));
@@ -44,5 +44,9 @@ fn benchmark_scheduler_dispatch(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, benchmark_scheduler_enqueue, benchmark_scheduler_dispatch);
+criterion_group!(
+    benches,
+    benchmark_scheduler_enqueue,
+    benchmark_scheduler_dispatch
+);
 criterion_main!(benches);

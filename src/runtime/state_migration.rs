@@ -82,7 +82,10 @@ pub enum FieldType {
     /// Array of type
     Array { element: Box<FieldType> },
     /// Map from key to value
-    Map { key: Box<FieldType>, value: Box<FieldType> },
+    Map {
+        key: Box<FieldType>,
+        value: Box<FieldType>,
+    },
     /// Optional of type
     Optional { inner: Box<FieldType> },
     /// Custom type name
@@ -178,7 +181,11 @@ pub struct StateMigrator {
 }
 
 /// Transform function type
-type TransformFn = Box<dyn Fn(&serde_json::Value, &HashMap<String, serde_json::Value>) -> Result<serde_json::Value> + Send + Sync>;
+type TransformFn = Box<
+    dyn Fn(&serde_json::Value, &HashMap<String, serde_json::Value>) -> Result<serde_json::Value>
+        + Send
+        + Sync,
+>;
 
 /// Migration record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,13 +218,19 @@ impl StateMigrator {
 
     /// Register a schema
     pub async fn register_schema(&self, version: &str, schema: StateSchema) {
-        self.schemas.write().await.insert(version.to_string(), schema);
+        self.schemas
+            .write()
+            .await
+            .insert(version.to_string(), schema);
         info!("Registered schema version: {}", version);
     }
 
     /// Register a transform function
     pub async fn register_transform(&self, name: &str, transform: TransformFn) {
-        self.transforms.write().await.insert(name.to_string(), transform);
+        self.transforms
+            .write()
+            .await
+            .insert(name.to_string(), transform);
         debug!("Registered transform function: {}", name);
     }
 
@@ -230,7 +243,7 @@ impl StateMigrator {
         data: serde_json::Value,
     ) -> Result<StateSnapshot> {
         let checksum = self.compute_checksum(&data);
-        
+
         Ok(StateSnapshot {
             id: format!("snap-{}", uuid::Uuid::new_v4()),
             module_id: module_id.to_string(),
@@ -247,7 +260,7 @@ impl StateMigrator {
     fn compute_checksum(&self, data: &serde_json::Value) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         data.to_string().hash(&mut hasher);
         format!("{:016x}", hasher.finish())
@@ -269,12 +282,14 @@ impl StateMigrator {
     ) -> Result<MigrationPlan> {
         let mut steps = Vec::new();
         let mut risk_level = "low".to_string();
-        
+
         // Compare schemas and generate steps
-        let source_fields_map: HashMap<&str, &FieldDef> = source_schema.fields.iter()
+        let source_fields_map: HashMap<&str, &FieldDef> = source_schema
+            .fields
+            .iter()
             .map(|f| (f.name.as_str(), f))
             .collect();
-        
+
         for target_field in &target_schema.fields {
             if let Some(source_field) = source_fields_map.get(target_field.name.as_str()) {
                 // Field exists in both - check if transformation needed
@@ -293,7 +308,7 @@ impl StateMigrator {
                         dependencies: Vec::new(),
                         reversible: true,
                     });
-                    
+
                     risk_level = "medium".to_string();
                 }
             } else {
@@ -307,15 +322,19 @@ impl StateMigrator {
                         dependencies: Vec::new(),
                         reversible: true,
                     });
-                    
+
                     risk_level = "medium".to_string();
                 }
             }
         }
-        
+
         // Check for removed fields
         for source_field in &source_schema.fields {
-            if !target_schema.fields.iter().any(|f| f.name == source_field.name) {
+            if !target_schema
+                .fields
+                .iter()
+                .any(|f| f.name == source_field.name)
+            {
                 steps.push(MigrationStep {
                     id: format!("step-{}", uuid::Uuid::new_v4()),
                     description: format!("Remove field: {}", source_field.name),
@@ -324,13 +343,13 @@ impl StateMigrator {
                     dependencies: Vec::new(),
                     reversible: false, // Data loss
                 });
-                
+
                 risk_level = "high".to_string();
             }
         }
-        
+
         let estimated_duration = steps.len() as u64 * 10; // 10ms per step
-        
+
         Ok(MigrationPlan {
             id: format!("plan-{}", uuid::Uuid::new_v4()),
             source_schema,
@@ -344,15 +363,16 @@ impl StateMigrator {
     /// Check if transformation is needed
     fn needs_transform(&self, source: &FieldDef, target: &FieldDef) -> bool {
         // Check type change
-        if std::mem::discriminant(&source.field_type) != std::mem::discriminant(&target.field_type) {
+        if std::mem::discriminant(&source.field_type) != std::mem::discriminant(&target.field_type)
+        {
             return true;
         }
-        
+
         // Check required change
         if source.required != target.required {
             return true;
         }
-        
+
         false
     }
 
@@ -363,31 +383,39 @@ impl StateMigrator {
         plan: &MigrationPlan,
     ) -> Result<MigrationResult> {
         let start_time = std::time::Instant::now();
-        
+
         info!(
             "Migrating state from version {} to {}",
-            snapshot.schema_version,
-            plan.target_schema.version
+            snapshot.schema_version, plan.target_schema.version
         );
-        
+
         let mut state = snapshot.data.clone();
         let mut warnings = Vec::new();
         let mut fields_migrated = 0;
         let mut fields_skipped = 0;
         let mut fields_added = 0;
-        
+
         // Build field map
-        let source_fields: HashMap<&str, &FieldDef> = plan.source_schema.fields.iter()
+        let source_fields: HashMap<&str, &FieldDef> = plan
+            .source_schema
+            .fields
+            .iter()
             .map(|f| (f.name.as_str(), f))
             .collect();
-        
-        let target_fields: HashMap<&str, &FieldDef> = plan.target_schema.fields.iter()
+
+        let target_fields: HashMap<&str, &FieldDef> = plan
+            .target_schema
+            .fields
+            .iter()
             .map(|f| (f.name.as_str(), f))
             .collect();
-        
+
         // Apply migration steps
         for step in &plan.steps {
-            match self.apply_migration_step(&mut state, step, &source_fields, &target_fields).await {
+            match self
+                .apply_migration_step(&mut state, step, &source_fields, &target_fields)
+                .await
+            {
                 Ok(applied) => {
                     if applied {
                         fields_migrated += 1;
@@ -400,7 +428,7 @@ impl StateMigrator {
                 }
             }
         }
-        
+
         // Ensure all required fields are present
         if let serde_json::Value::Object(ref mut map) = state {
             for field in &plan.target_schema.fields {
@@ -414,9 +442,9 @@ impl StateMigrator {
                 }
             }
         }
-        
+
         let duration = start_time.elapsed();
-        
+
         // Record migration
         let record = MigrationRecord {
             id: format!("rec-{}", uuid::Uuid::new_v4()),
@@ -427,9 +455,9 @@ impl StateMigrator {
             success: warnings.is_empty(),
             duration_ms: duration.as_millis() as u64,
         };
-        
+
         self.history.write().await.push(record);
-        
+
         Ok(MigrationResult {
             success: warnings.is_empty(),
             from_version: snapshot.schema_version.clone(),
@@ -457,19 +485,24 @@ impl StateMigrator {
                 // Apply transform if specified
                 if let Some(ref transform) = step.transform {
                     let transforms = self.transforms.read().await;
-                    
+
                     if let Some(transform_fn) = transforms.get(&transform.function) {
                         let new_value = transform_fn(&value, &transform.params)?;
                         map.insert(step.field.clone(), new_value);
                         return Ok(true);
                     } else {
                         // No transform function registered - use default transforms
-                        let new_value = self.apply_default_transform(&value, &step.field, source_fields, target_fields)?;
+                        let new_value = self.apply_default_transform(
+                            &value,
+                            &step.field,
+                            source_fields,
+                            target_fields,
+                        )?;
                         map.insert(step.field.clone(), new_value);
                         return Ok(true);
                     }
                 }
-                
+
                 // No transform needed
                 return Ok(false);
             } else {
@@ -482,7 +515,7 @@ impl StateMigrator {
                 }
             }
         }
-        
+
         Ok(false)
     }
 
@@ -496,58 +529,50 @@ impl StateMigrator {
     ) -> Result<serde_json::Value> {
         let source_field = source_fields.get(field_name);
         let target_field = target_fields.get(field_name);
-        
+
         if source_field.is_none() || target_field.is_none() {
             return Ok(value.clone());
         }
-        
+
         let source = source_field.unwrap();
         let target = target_field.unwrap();
-        
+
         // Handle common type conversions
         match (&source.field_type, &target.field_type) {
             // Integer to String
-            (FieldType::Integer { .. }, FieldType::String) => {
-                match value {
-                    serde_json::Value::Number(n) => {
-                        Ok(serde_json::Value::String(n.to_string()))
-                    }
-                    _ => Ok(value.clone()),
-                }
-            }
-            
+            (FieldType::Integer { .. }, FieldType::String) => match value {
+                serde_json::Value::Number(n) => Ok(serde_json::Value::String(n.to_string())),
+                _ => Ok(value.clone()),
+            },
+
             // String to Integer
-            (FieldType::String, FieldType::Integer { .. }) => {
-                match value {
-                    serde_json::Value::String(s) => {
-                        if let Ok(n) = s.parse::<i64>() {
-                            Ok(serde_json::Value::Number(n.into()))
-                        } else {
-                            bail!("Cannot convert '{}' to integer", s);
-                        }
+            (FieldType::String, FieldType::Integer { .. }) => match value {
+                serde_json::Value::String(s) => {
+                    if let Ok(n) = s.parse::<i64>() {
+                        Ok(serde_json::Value::Number(n.into()))
+                    } else {
+                        bail!("Cannot convert '{}' to integer", s);
                     }
-                    _ => Ok(value.clone()),
                 }
-            }
-            
+                _ => Ok(value.clone()),
+            },
+
             // Array to Map (if elements have key)
-            (FieldType::Array { .. }, FieldType::Map { .. }) => {
-                match value {
-                    serde_json::Value::Array(arr) => {
-                        let mut map = serde_json::Map::new();
-                        for item in arr {
-                            if let serde_json::Value::Object(obj) = item {
-                                if let Some(key) = obj.get("key").and_then(|k| k.as_str()) {
-                                    map.insert(key.to_string(), item.clone());
-                                }
+            (FieldType::Array { .. }, FieldType::Map { .. }) => match value {
+                serde_json::Value::Array(arr) => {
+                    let mut map = serde_json::Map::new();
+                    for item in arr {
+                        if let serde_json::Value::Object(obj) = item {
+                            if let Some(key) = obj.get("key").and_then(|k| k.as_str()) {
+                                map.insert(key.to_string(), item.clone());
                             }
                         }
-                        Ok(serde_json::Value::Object(map))
                     }
-                    _ => Ok(value.clone()),
+                    Ok(serde_json::Value::Object(map))
                 }
-            }
-            
+                _ => Ok(value.clone()),
+            },
+
             // Default: keep as is
             _ => Ok(value.clone()),
         }
@@ -561,17 +586,21 @@ impl StateMigrator {
     /// Get migration statistics
     pub async fn get_stats(&self) -> MigrationStats {
         let history = self.history.read().await;
-        
+
         let total = history.len();
         let successful = history.iter().filter(|r| r.success).count();
         let total_duration = history.iter().map(|r| r.duration_ms).sum();
-        
+
         MigrationStats {
             total_migrations: total,
             successful,
             failed: total - successful,
             total_duration_ms: total_duration,
-            average_duration_ms: if total > 0 { total_duration / total as u64 } else { 0 },
+            average_duration_ms: if total > 0 {
+                total_duration / total as u64
+            } else {
+                0
+            },
         }
     }
 }
@@ -604,42 +633,33 @@ pub mod transforms {
 
     /// Integer to string transform
     pub fn int_to_string() -> TransformFn {
-        Box::new(|value, _| {
-            match value {
-                serde_json::Value::Number(n) => {
-                    Ok(serde_json::Value::String(n.to_string()))
-                }
-                _ => Ok(value.clone()),
-            }
+        Box::new(|value, _| match value {
+            serde_json::Value::Number(n) => Ok(serde_json::Value::String(n.to_string())),
+            _ => Ok(value.clone()),
         })
     }
 
     /// String to integer transform
     pub fn string_to_int() -> TransformFn {
-        Box::new(|value, _| {
-            match value {
-                serde_json::Value::String(s) => {
-                    let n: i64 = s.parse()
-                        .context("Failed to parse integer")?;
-                    Ok(serde_json::Value::Number(n.into()))
-                }
-                _ => Ok(value.clone()),
+        Box::new(|value, _| match value {
+            serde_json::Value::String(s) => {
+                let n: i64 = s.parse().context("Failed to parse integer")?;
+                Ok(serde_json::Value::Number(n.into()))
             }
+            _ => Ok(value.clone()),
         })
     }
 
     /// Flatten nested object
     pub fn flatten(separator: &str) -> TransformFn {
         let sep = separator.to_string();
-        Box::new(move |value, _| {
-            match value {
-                serde_json::Value::Object(obj) => {
-                    let mut flat = serde_json::Map::new();
-                    flatten_object(&mut flat, "", obj, &sep);
-                    Ok(serde_json::Value::Object(flat))
-                }
-                _ => Ok(value.clone()),
+        Box::new(move |value, _| match value {
+            serde_json::Value::Object(obj) => {
+                let mut flat = serde_json::Map::new();
+                flatten_object(&mut flat, "", obj, &sep);
+                Ok(serde_json::Value::Object(flat))
             }
+            _ => Ok(value.clone()),
         })
     }
 
@@ -655,7 +675,7 @@ pub mod transforms {
             } else {
                 format!("{}{}{}", prefix, sep, key)
             };
-            
+
             match value {
                 serde_json::Value::Object(nested) => {
                     flatten_object(flat, &new_key, nested, sep);
@@ -675,20 +695,18 @@ mod tests {
     #[tokio::test]
     async fn test_create_snapshot() {
         let migrator = StateMigrator::new();
-        
+
         let data = serde_json::json!({
             "counter": 42,
             "name": "test",
             "enabled": true
         });
-        
-        let snapshot = migrator.create_snapshot(
-            "module-1",
-            "1.0.0",
-            "1.0.0",
-            data.clone(),
-        ).await.unwrap();
-        
+
+        let snapshot = migrator
+            .create_snapshot("module-1", "1.0.0", "1.0.0", data.clone())
+            .await
+            .unwrap();
+
         assert!(snapshot.id.starts_with("snap-"));
         assert!(migrator.verify_snapshot(&snapshot).unwrap());
     }
@@ -696,27 +714,31 @@ mod tests {
     #[tokio::test]
     async fn test_plan_migration() {
         let migrator = StateMigrator::new();
-        
+
         let source_schema = StateSchema {
             version: "1.0.0".to_string(),
-            fields: vec![
-                FieldDef {
-                    name: "counter".to_string(),
-                    field_type: FieldType::Integer { bits: 32, signed: true },
-                    required: true,
-                    default: None,
-                    migration_hint: None,
+            fields: vec![FieldDef {
+                name: "counter".to_string(),
+                field_type: FieldType::Integer {
+                    bits: 32,
+                    signed: true,
                 },
-            ],
+                required: true,
+                default: None,
+                migration_hint: None,
+            }],
             invariants: Vec::new(),
         };
-        
+
         let target_schema = StateSchema {
             version: "1.1.0".to_string(),
             fields: vec![
                 FieldDef {
                     name: "counter".to_string(),
-                    field_type: FieldType::Integer { bits: 64, signed: true },
+                    field_type: FieldType::Integer {
+                        bits: 64,
+                        signed: true,
+                    },
                     required: true,
                     default: None,
                     migration_hint: None,
@@ -731,24 +753,22 @@ mod tests {
             ],
             invariants: Vec::new(),
         };
-        
-        let plan = migrator.plan_migration(
-            "1.0.0",
-            "1.1.0",
-            source_schema,
-            target_schema,
-        ).await.unwrap();
-        
+
+        let plan = migrator
+            .plan_migration("1.0.0", "1.1.0", source_schema, target_schema)
+            .await
+            .unwrap();
+
         assert!(plan.steps.iter().any(|s| s.field == "name"));
     }
 
     #[tokio::test]
     async fn test_transforms() {
         let transform = transforms::int_to_string();
-        
+
         let value = serde_json::json!(42);
         let result = transform(&value, &HashMap::new()).unwrap();
-        
+
         assert_eq!(result, serde_json::json!("42"));
     }
 }

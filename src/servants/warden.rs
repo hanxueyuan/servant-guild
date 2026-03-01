@@ -7,15 +7,15 @@
 //! - Validating tool execution requests
 //! - Monitoring for suspicious activity
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::{
-    Servant, ServantId, ServantRole, ServantStatus, ServantTask, ServantResult, ServantError,
+    Servant, ServantError, ServantId, ServantResult, ServantRole, ServantStatus, ServantTask,
 };
 use crate::consensus::{ConsensusEngine, Vote};
 use crate::safety::{AuditLogger, Snapshot, TransactionManager};
@@ -148,35 +148,35 @@ impl Warden {
             rate_tracker: RwLock::new(HashMap::new()),
         }
     }
-    
+
     /// Set the consensus engine
     pub fn with_consensus(mut self, consensus: Arc<ConsensusEngine>) -> Self {
         self.consensus = Some(consensus);
         self
     }
-    
+
     /// Set the audit log
     pub fn with_audit_log(mut self, audit_log: Arc<AuditLog>) -> Self {
         self.audit_log = Some(audit_log);
         self
     }
-    
+
     /// Set the rollback manager
     pub fn with_rollback_manager(mut self, manager: Arc<RollbackManager>) -> Self {
         self.rollback_manager = Some(manager);
         self
     }
-    
+
     /// Update security policy
     pub fn set_policy(&self, policy: SecurityPolicy) {
         *self.policy.write() = policy;
     }
-    
+
     /// Get current security policy
     pub fn get_policy(&self) -> SecurityPolicy {
         self.policy.read().clone()
     }
-    
+
     /// Check if an operation is allowed
     pub fn check_operation(
         &self,
@@ -186,10 +186,10 @@ impl Warden {
     ) -> SecurityCheckResult {
         let policy = self.policy.read();
         let mut warnings = Vec::new();
-        
+
         // Determine risk level based on operation type
         let risk_level = Self::calculate_risk_level(operation_type, params);
-        
+
         // Check rate limit
         if !self.check_rate_limit(source, policy.rate_limit) {
             self.log_event(SecurityEvent {
@@ -201,7 +201,7 @@ impl Warden {
                 timestamp: Utc::now(),
                 blocked: true,
             });
-            
+
             return SecurityCheckResult {
                 allowed: false,
                 reason: "Rate limit exceeded".to_string(),
@@ -210,10 +210,10 @@ impl Warden {
                 warnings: vec!["Wait before making more requests".to_string()],
             };
         }
-        
+
         // Check risk level
         let requires_approval = risk_level > policy.max_auto_risk_level;
-        
+
         // Check for blocked patterns
         if let Some(path) = params.get("path").and_then(|p| p.as_str()) {
             for pattern in &policy.blocked_patterns {
@@ -227,7 +227,7 @@ impl Warden {
                         timestamp: Utc::now(),
                         blocked: true,
                     });
-                    
+
                     return SecurityCheckResult {
                         allowed: false,
                         reason: format!("Access to {} is blocked by policy", path),
@@ -238,11 +238,11 @@ impl Warden {
                 }
             }
         }
-        
+
         // Check network access
         if policy.block_network && operation_type == "http_request" {
             warnings.push("Network access is currently blocked".to_string());
-            
+
             return SecurityCheckResult {
                 allowed: false,
                 reason: "Network access is blocked by policy".to_string(),
@@ -251,7 +251,7 @@ impl Warden {
                 warnings,
             };
         }
-        
+
         // Log the check
         if policy.enforce_audit {
             self.log_event(SecurityEvent {
@@ -264,7 +264,7 @@ impl Warden {
                 blocked: false,
             });
         }
-        
+
         SecurityCheckResult {
             allowed: true,
             reason: if requires_approval {
@@ -277,7 +277,7 @@ impl Warden {
             warnings,
         }
     }
-    
+
     /// Calculate risk level for an operation
     fn calculate_risk_level(operation_type: &str, params: &serde_json::Value) -> u8 {
         match operation_type {
@@ -291,7 +291,7 @@ impl Warden {
             _ => 5, // Default medium risk
         }
     }
-    
+
     /// Check if a path matches a glob pattern
     fn matches_pattern(path: &str, pattern: &str) -> bool {
         // Simple glob matching for common patterns
@@ -301,62 +301,68 @@ impl Warden {
         }
         path == pattern
     }
-    
+
     /// Check rate limit
     fn check_rate_limit(&self, source: &str, limit: u32) -> bool {
         let mut tracker = self.rate_tracker.write();
         let now = Utc::now();
         let minute_ago = now - chrono::Duration::seconds(60);
-        
+
         // Get or create entry for this source
         let timestamps = tracker.entry(source.to_string()).or_insert_with(Vec::new);
-        
+
         // Remove old entries
         timestamps.retain(|&t| t > minute_ago);
-        
+
         // Check if under limit
         if timestamps.len() >= limit as usize {
             return false;
         }
-        
+
         // Record this operation
         timestamps.push(now);
         true
     }
-    
+
     /// Log a security event
     fn log_event(&self, event: SecurityEvent) {
         self.events.write().push(event);
     }
-    
+
     /// Get security events
     pub fn get_events(&self) -> Vec<SecurityEvent> {
         self.events.read().clone()
     }
-    
+
     /// Create a safety snapshot before a risky operation
     pub async fn create_snapshot(&self, operation_id: &str) -> Result<String, ServantError> {
         if let Some(manager) = &self.rollback_manager {
             use std::path::Path;
-            let snapshot = manager.create_snapshot(Path::new(operation_id))
+            let snapshot = manager
+                .create_snapshot(Path::new(operation_id))
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
             Ok(snapshot.id.clone())
         } else {
-            Err(ServantError::Internal("Rollback manager not configured".to_string()))
+            Err(ServantError::Internal(
+                "Rollback manager not configured".to_string(),
+            ))
         }
     }
-    
+
     /// Rollback to a snapshot
     pub async fn rollback(&self, _snapshot_id: &str) -> Result<(), ServantError> {
         if let Some(manager) = &self.rollback_manager {
-            manager.rollback()
+            manager
+                .rollback()
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
             Ok(())
         } else {
-            Err(ServantError::Internal("Rollback manager not configured".to_string()))
+            Err(ServantError::Internal(
+                "Rollback manager not configured".to_string(),
+            ))
         }
     }
-    
+
     /// Audit an operation
     pub async fn audit_operation(
         &self,
@@ -365,14 +371,16 @@ impl Warden {
     ) -> Result<(), ServantError> {
         if let Some(audit_log) = &self.audit_log {
             use crate::safety::audit::AuditEvent;
-            let event = AuditEvent::new(crate::safety::AuditEventType::Custom(operation.to_string()))
-                .with_result(true, None, 0, Some(details.to_string()));
-            audit_log.log(&event)
+            let event =
+                AuditEvent::new(crate::safety::AuditEventType::Custom(operation.to_string()))
+                    .with_result(true, None, 0, Some(details.to_string()));
+            audit_log
+                .log(&event)
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
         }
         Ok(())
     }
-    
+
     /// Vote on a proposal
     pub async fn vote_on_proposal(
         &self,
@@ -381,7 +389,8 @@ impl Warden {
         reason: String,
     ) -> Result<(), ServantError> {
         if let Some(consensus) = &self.consensus {
-            consensus.cast_vote(proposal_id, self.id.as_str().to_string(), vote, reason)
+            consensus
+                .cast_vote(proposal_id, self.id.as_str().to_string(), vote, reason)
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
         }
         Ok(())
@@ -399,26 +408,26 @@ impl Servant for Warden {
     fn id(&self) -> &ServantId {
         &self.id
     }
-    
+
     fn role(&self) -> ServantRole {
         ServantRole::Warden
     }
-    
+
     fn status(&self) -> ServantStatus {
         self.status.read().clone()
     }
-    
+
     async fn start(&mut self) -> Result<(), ServantError> {
         *self.status.write() = ServantStatus::Ready;
         Ok(())
     }
-    
+
     async fn stop(&mut self) -> Result<(), ServantError> {
         *self.status.write() = ServantStatus::Stopping;
         *self.status.write() = ServantStatus::Paused;
         Ok(())
     }
-    
+
     fn capabilities(&self) -> Vec<String> {
         vec![
             "security_check".to_string(),
@@ -440,84 +449,96 @@ mod tests {
         assert_eq!(warden.role(), ServantRole::Warden);
         assert_eq!(warden.status(), ServantStatus::Starting);
     }
-    
+
     #[tokio::test]
     async fn test_warden_start_stop() {
         let mut warden = Warden::new();
-        
+
         warden.start().await.unwrap();
         assert_eq!(warden.status(), ServantStatus::Ready);
-        
+
         warden.stop().await.unwrap();
         assert_eq!(warden.status(), ServantStatus::Paused);
     }
-    
+
     #[test]
     fn test_check_safe_operation() {
         let mut warden = Warden::new();
         *warden.status.write() = ServantStatus::Ready;
-        
+
         let result = warden.check_operation(
             "read_file",
             &serde_json::json!({"path": "/safe/path.txt"}),
             "worker",
         );
-        
+
         assert!(result.allowed);
         assert!(!result.requires_approval);
     }
-    
+
     #[test]
     fn test_check_risky_operation() {
         let mut warden = Warden::new();
         *warden.status.write() = ServantStatus::Ready;
-        
+
         let result = warden.check_operation(
             "delete_file",
             &serde_json::json!({"path": "/important/file.txt"}),
             "worker",
         );
-        
+
         assert!(result.allowed); // Still allowed
         assert!(result.requires_approval); // But needs approval
         assert_eq!(result.risk_level, 8);
     }
-    
+
     #[test]
     fn test_blocked_pattern() {
         let mut warden = Warden::new();
         *warden.status.write() = ServantStatus::Ready;
-        
+
         let result = warden.check_operation(
             "read_file",
             &serde_json::json!({"path": "/project/.env"}),
             "worker",
         );
-        
+
         assert!(!result.allowed);
         assert!(result.reason.contains("blocked"));
     }
-    
+
     #[test]
     fn test_rate_limit() {
         let mut warden = Warden::new();
         *warden.status.write() = ServantStatus::Ready;
-        
+
         // Set a very low rate limit
         let mut policy = SecurityPolicy::default();
         policy.rate_limit = 2;
         warden.set_policy(policy);
-        
+
         // First two should succeed
-        assert!(warden.check_operation("read_file", &serde_json::json!({}), "worker1").allowed);
-        assert!(warden.check_operation("read_file", &serde_json::json!({}), "worker1").allowed);
-        
+        assert!(
+            warden
+                .check_operation("read_file", &serde_json::json!({}), "worker1")
+                .allowed
+        );
+        assert!(
+            warden
+                .check_operation("read_file", &serde_json::json!({}), "worker1")
+                .allowed
+        );
+
         // Third should be rate limited
         let result = warden.check_operation("read_file", &serde_json::json!({}), "worker1");
         assert!(!result.allowed);
         assert!(result.reason.contains("Rate limit"));
-        
+
         // Different source should still work
-        assert!(warden.check_operation("read_file", &serde_json::json!({}), "worker2").allowed);
+        assert!(
+            warden
+                .check_operation("read_file", &serde_json::json!({}), "worker2")
+                .allowed
+        );
     }
 }

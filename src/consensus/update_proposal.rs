@@ -234,7 +234,7 @@ impl UpdateProposal {
             proposer.clone(),
             DecisionType::UpdateDeployment,
         );
-        
+
         Self {
             base,
             update_type,
@@ -294,13 +294,14 @@ impl UpdateProposal {
     /// Calculate overall risk score
     pub fn calculate_risk_score(&self) -> u8 {
         let mut score = 0u8;
-        
+
         // Base score from update type
         score += match &self.update_type {
             UpdateType::ModuleUpdate { .. } => 20,
             UpdateType::ConfigChange { .. } => 30,
             UpdateType::BehaviorEvolution { changes } => {
-                let max_impact = changes.iter()
+                let max_impact = changes
+                    .iter()
                     .map(|c| match c.impact {
                         ImpactLevel::Low => 10,
                         ImpactLevel::Medium => 20,
@@ -315,20 +316,25 @@ impl UpdateProposal {
             UpdateType::IntegrationAdd { .. } => 25,
             UpdateType::Rollback { .. } => 35,
         };
-        
+
         // Add risk from risks list
         score += (self.risks.len() * 5).min(30) as u8;
-        
+
         // Subtract confidence
         score = score.saturating_sub(self.confidence / 5);
-        
+
         // Check rollback plan
         if self.rollback_plan.is_none() {
             score += 10;
-        } else if self.rollback_plan.as_ref().map(|r| r.data_loss_risk).unwrap_or(false) {
+        } else if self
+            .rollback_plan
+            .as_ref()
+            .map(|r| r.data_loss_risk)
+            .unwrap_or(false)
+        {
             score += 15;
         }
-        
+
         // Check test results
         if let Some(ref results) = self.test_results {
             if results.unit_test_pass_rate < 0.95 {
@@ -343,31 +349,34 @@ impl UpdateProposal {
         } else {
             score += 20; // No tests = higher risk
         }
-        
+
         score.min(100)
     }
 
     /// Check if proposal is safe to execute
     pub fn is_safe_to_execute(&self) -> bool {
         let risk_score = self.calculate_risk_score();
-        
+
         // High risk requires more approval
         if risk_score > 70 {
             return false;
         }
-        
+
         // Critical updates need test results
-        if matches!(self.update_type, UpdateType::SecurityPolicy { .. } | UpdateType::BehaviorEvolution { .. }) {
+        if matches!(
+            self.update_type,
+            UpdateType::SecurityPolicy { .. } | UpdateType::BehaviorEvolution { .. }
+        ) {
             if self.test_results.is_none() {
                 return false;
             }
         }
-        
+
         // Rollback required for high-risk updates
         if risk_score > 50 && self.rollback_plan.is_none() {
             return false;
         }
-        
+
         true
     }
 
@@ -385,7 +394,7 @@ impl UpdateProposal {
     /// Convert to consensus proposal
     pub fn into_proposal(self) -> Proposal {
         let payload = serde_json::to_value(&self.update_type).ok();
-        
+
         Proposal {
             id: self.base.id,
             title: self.base.title,
@@ -405,7 +414,7 @@ impl UpdateProposal {
     /// Generate tags based on update type
     fn generate_tags(&self) -> Vec<String> {
         let mut tags = vec!["update".to_string()];
-        
+
         match &self.update_type {
             UpdateType::ModuleUpdate { module_id, .. } => {
                 tags.push("module".to_string());
@@ -421,7 +430,9 @@ impl UpdateProposal {
             UpdateType::SecurityPolicy { .. } => {
                 tags.push("security".to_string());
             }
-            UpdateType::IntegrationAdd { integration_name, .. } => {
+            UpdateType::IntegrationAdd {
+                integration_name, ..
+            } => {
                 tags.push("integration".to_string());
                 tags.push(integration_name.clone());
             }
@@ -429,18 +440,18 @@ impl UpdateProposal {
                 tags.push("rollback".to_string());
             }
         }
-        
+
         if self.urgent {
             tags.push("urgent".to_string());
         }
-        
+
         tags
     }
 
     /// Calculate priority based on various factors
     fn calculate_priority(&self) -> u8 {
         let mut priority = 5u8; // Normal priority
-        
+
         if self.urgent {
             priority = 10;
         } else if matches!(self.update_type, UpdateType::SecurityPolicy { .. }) {
@@ -452,7 +463,7 @@ impl UpdateProposal {
         } else if self.confidence < 30 {
             priority = 3;
         }
-        
+
         priority
     }
 }
@@ -474,7 +485,12 @@ pub struct UpdateProposalBuilder {
 
 impl UpdateProposalBuilder {
     /// Create a new proposal builder
-    pub fn new(title: String, description: String, proposer: String, update_type: UpdateType) -> Self {
+    pub fn new(
+        title: String,
+        description: String,
+        proposer: String,
+        update_type: UpdateType,
+    ) -> Self {
         Self {
             title,
             description,
@@ -540,7 +556,7 @@ impl UpdateProposalBuilder {
             self.proposer,
             self.update_type,
         );
-        
+
         if let Some(r) = self.rationale {
             proposal = proposal.with_rationale(r);
         }
@@ -560,7 +576,7 @@ impl UpdateProposalBuilder {
         if self.urgent {
             proposal = proposal.mark_urgent();
         }
-        
+
         proposal
     }
 }
@@ -581,7 +597,7 @@ mod tests {
                 to_version: "1.1.0".to_string(),
             },
         );
-        
+
         assert_eq!(proposal.proposer_servant, "warden-1");
         assert!(!proposal.urgent);
     }
@@ -599,10 +615,10 @@ mod tests {
             },
         )
         .with_confidence(90);
-        
+
         let score = low_risk.calculate_risk_score();
         assert!(score < 30);
-        
+
         let high_risk = UpdateProposal::new(
             "Major Behavior Change".to_string(),
             "Complete refactor".to_string(),
@@ -619,7 +635,7 @@ mod tests {
                 }],
             },
         );
-        
+
         let high_score = high_risk.calculate_risk_score();
         assert!(high_score > 50);
     }
@@ -645,9 +661,9 @@ mod tests {
             total_tests: 100,
             failed_tests: vec![],
         });
-        
+
         assert!(safe_proposal.is_safe_to_execute());
-        
+
         let unsafe_proposal = UpdateProposal::new(
             "Risky Update".to_string(),
             "Untested change".to_string(),
@@ -657,7 +673,7 @@ mod tests {
                 changes: vec![],
             },
         );
-        
+
         assert!(!unsafe_proposal.is_safe_to_execute());
     }
 
@@ -677,7 +693,7 @@ mod tests {
         .risk("API rate limits".to_string())
         .confidence(80)
         .build();
-        
+
         assert_eq!(proposal.benefits.len(), 1);
         assert_eq!(proposal.risks.len(), 1);
         assert_eq!(proposal.confidence, 80);

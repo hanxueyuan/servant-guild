@@ -13,17 +13,27 @@ pub mod wasm;
 #[cfg(feature = "runtime-wasm")]
 pub mod bindings;
 #[cfg(feature = "runtime-wasm")]
-pub mod state;
-#[cfg(feature = "runtime-wasm")]
 pub mod bridges;
+#[cfg(feature = "runtime-wasm")]
+pub mod state;
 
 pub use build::{BuildAutomation, BuildAutomationImpl, BuildConfig, BuildResult};
 pub use docker::DockerRuntime;
-pub use error_analyzer::{AutoFixer, AutoFixResult, BuildContext, BuildError, ErrorAnalyzer, FixSuggestion};
-pub use evolution::{EvolutionConfig, EvolutionEngine, EvolutionPlan, EvolutionResult, EvolutionStatus, EvolutionTrigger, EvolutionType};
-pub use hot_swap::{HotSwap, HotSwapManager, ModuleMetadata, ModuleVersion, SwapStrategy, SwapResult};
+pub use error_analyzer::{
+    AutoFixResult, AutoFixer, BuildContext, BuildError, ErrorAnalyzer, FixSuggestion,
+};
+pub use evolution::{
+    EvolutionConfig, EvolutionEngine, EvolutionPlan, EvolutionResult, EvolutionStatus,
+    EvolutionTrigger, EvolutionType,
+};
+pub use hot_swap::{
+    HotSwap, HotSwapManager, ModuleMetadata, ModuleVersion, SwapResult, SwapStrategy,
+};
 pub use native::NativeRuntime;
-pub use rollback::{BackupConfig, RecoveryPlan, RecoveryStep, RecoveryStepType, RollbackManager, RollbackPoint, RollbackPointType, RollbackResult};
+pub use rollback::{
+    BackupConfig, RecoveryPlan, RecoveryStep, RecoveryStepType, RollbackManager, RollbackPoint,
+    RollbackPointType, RollbackResult,
+};
 pub use sandbox::{BuildSandbox, SandboxConfig, SandboxManager, SandboxResult};
 pub use traits::RuntimeAdapter;
 pub use wasm::{WasmCapabilities, WasmRuntime};

@@ -65,13 +65,13 @@ impl WasmRuntime {
         input: &str,
         workspace_dir: &Path,
     ) -> Result<WasmExecutionResult> {
+        use crate::runtime::bindings::Servant;
+        use crate::runtime::state::HostState;
         use wasmtime::{
             component::{Component, Linker},
             Config, Engine, Store,
         };
         use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
-        use crate::runtime::state::HostState;
-        use crate::runtime::bindings::Servant;
 
         // 1. Configure Engine
         let mut config = Config::new();
@@ -88,12 +88,12 @@ impl WasmRuntime {
             wasi_builder.preopened_dir(workspace_dir, ".", DirPerms::READ, FilePerms::READ)?;
         }
         if self.config.allow_workspace_write {
-             let (dir_perms, file_perms) = if self.config.allow_workspace_write {
-                 (DirPerms::all(), FilePerms::all())
-             } else {
-                 (DirPerms::READ, FilePerms::READ)
-             };
-             wasi_builder.preopened_dir(workspace_dir, ".", dir_perms, file_perms)?;
+            let (dir_perms, file_perms) = if self.config.allow_workspace_write {
+                (DirPerms::all(), FilePerms::all())
+            } else {
+                (DirPerms::READ, FilePerms::READ)
+            };
+            wasi_builder.preopened_dir(workspace_dir, ".", dir_perms, file_perms)?;
         }
 
         let wasi = wasi_builder.build();
@@ -129,7 +129,7 @@ impl WasmRuntime {
         // 5. Link Host Functions
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::add_to_linker_async(&mut linker)?;
-        
+
         // Link our custom bridges (LLM, Tools, Safety, etc.)
         Servant::add_to_linker(&mut linker, |state: &mut HostState| state)?;
 
@@ -137,9 +137,7 @@ impl WasmRuntime {
         let servant = Servant::instantiate_async(&mut store, &component, &linker).await?;
 
         // 7. Execute handle-task
-        let result = servant
-            .call_handle_task(&mut store, task_id, input)
-            .await?;
+        let result = servant.call_handle_task(&mut store, task_id, input).await?;
 
         let fuel_consumed = store.get_fuel().unwrap_or(0);
 

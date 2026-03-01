@@ -261,9 +261,7 @@ impl RollbackRecoveryManager {
     /// Restore from snapshot
     pub async fn restore_snapshot(&self, snapshot_id: &str) -> Result<RollbackResult> {
         let snapshots = self.snapshots.read().await;
-        let snapshot = snapshots
-            .get(snapshot_id)
-            .context("Snapshot not found")?;
+        let snapshot = snapshots.get(snapshot_id).context("Snapshot not found")?;
 
         let snapshot_dir = self.snapshots_dir.join(snapshot_id);
 
@@ -300,10 +298,7 @@ impl RollbackRecoveryManager {
     }
 
     /// Create pre-update snapshot (before hot swap)
-    pub async fn create_pre_update_snapshot(
-        &self,
-        module_name: &str,
-    ) -> Result<String> {
+    pub async fn create_pre_update_snapshot(&self, module_name: &str) -> Result<String> {
         self.create_snapshot(
             &format!("pre-update-{}", module_name),
             SnapshotType::PreUpdate,
@@ -314,10 +309,7 @@ impl RollbackRecoveryManager {
     }
 
     /// Create post-update snapshot (after hot swap)
-    pub async fn create_post_update_snapshot(
-        &self,
-        module_name: &str,
-    ) -> Result<String> {
+    pub async fn create_post_update_snapshot(&self, module_name: &str) -> Result<String> {
         self.create_snapshot(
             &format!("post-update-{}", module_name),
             SnapshotType::PostUpdate,
@@ -483,10 +475,7 @@ impl RollbackRecoveryManager {
     }
 
     /// Execute recovery plan
-    pub async fn execute_recovery_plan(
-        &self,
-        plan: &mut RecoveryPlan,
-    ) -> Result<RollbackResult> {
+    pub async fn execute_recovery_plan(&self, plan: &mut RecoveryPlan) -> Result<RollbackResult> {
         // TODO: Implement actual recovery execution
         // For now, just mark all steps as completed
 

@@ -14,11 +14,14 @@ pub mod validation;
 
 use serde::{Deserialize, Serialize};
 
-pub use audit::{AuditLog, AuditEntry};
+pub use audit::{AuditEntry, AuditLog};
 pub use encryption::{EncryptionKey, Encryptor};
-pub use network::{NetworkPolicy, NetworkIsolation};
-pub use secrets::{SecretsManager, Secret};
+pub use network::{NetworkIsolation, NetworkPolicy};
+pub use secrets::{Secret, SecretStore, SecretsManager};
 pub use validation::{InputValidator, ValidationError};
+
+// Re-export SafetyPolicy as SecurityPolicy for compatibility
+pub use crate::safety::{RiskLevel, SafetyPolicy as SecurityPolicy};
 
 /// Security configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,7 +117,7 @@ impl SecurityManager {
         let secrets_manager = SecretsManager::new();
         let encryptor = Encryptor::new();
         let validator = InputValidator::new(config.max_request_size);
-        
+
         Self {
             config,
             audit_log,
@@ -123,29 +126,29 @@ impl SecurityManager {
             validator,
         }
     }
-    
+
     /// Create security context for an operation
     pub fn create_context(&self, agent: &str, level: SecurityLevel) -> SecurityContext {
         SecurityContext::new(agent.to_string(), level)
     }
-    
+
     /// Log an audit entry
     pub async fn log_audit(&self, entry: AuditEntry) {
         if self.config.enable_audit_logging {
             self.audit_log.log(entry).await;
         }
     }
-    
+
     /// Get a secret
     pub async fn get_secret(&self, key: &str) -> Result<String, String> {
         self.secrets_manager.get(key).await
     }
-    
+
     /// Set a secret
     pub async fn set_secret(&self, key: &str, value: &str) -> Result<(), String> {
         self.secrets_manager.set(key, value).await
     }
-    
+
     /// Encrypt data
     pub fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>, String> {
         if self.config.enable_encryption {
@@ -154,7 +157,7 @@ impl SecurityManager {
             Ok(data.to_vec())
         }
     }
-    
+
     /// Decrypt data
     pub fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, String> {
         if self.config.enable_encryption {
@@ -163,7 +166,7 @@ impl SecurityManager {
             Ok(data.to_vec())
         }
     }
-    
+
     /// Validate input
     pub fn validate_input(&self, input: &str) -> Result<(), ValidationError> {
         if self.config.enable_input_validation {
@@ -177,21 +180,21 @@ impl SecurityManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_security_config_default() {
         let config = SecurityConfig::default();
-        
+
         assert!(config.enable_network_isolation);
         assert!(config.enable_encryption);
         assert!(config.enable_audit_logging);
         assert_eq!(config.audit_retention_days, 90);
     }
-    
+
     #[test]
     fn test_security_context() {
         let ctx = SecurityContext::new("coordinator".to_string(), SecurityLevel::Normal);
-        
+
         assert_eq!(ctx.agent, "coordinator");
         assert_eq!(ctx.level, SecurityLevel::Normal);
     }

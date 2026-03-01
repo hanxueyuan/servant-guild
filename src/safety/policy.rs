@@ -10,7 +10,7 @@ use std::collections::HashSet;
 pub struct SafetyPolicy {
     /// List of allowed tool names.
     pub allowed_tools: HashSet<String>,
-    
+
     /// Maximum risk level allowed without human approval.
     pub max_risk_level: RiskLevel,
 
@@ -30,7 +30,7 @@ impl Default for SafetyPolicy {
     fn default() -> Self {
         let mut allowed = HashSet::new();
         allowed.insert("echo".to_string());
-        
+
         Self {
             allowed_tools: allowed,
             max_risk_level: RiskLevel::Low,
@@ -43,9 +43,9 @@ impl SafetyPolicy {
     pub fn new_permissive() -> Self {
         Self {
             allowed_tools: HashSet::from_iter(vec![
-                "echo".to_string(), 
-                "read_file".to_string(), 
-                "write_file".to_string()
+                "echo".to_string(),
+                "read_file".to_string(),
+                "write_file".to_string(),
             ]),
             max_risk_level: RiskLevel::Medium,
             read_only: false,

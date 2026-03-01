@@ -95,7 +95,11 @@ impl EvolutionTestRunner {
 
         // Step 1: Create pre-update snapshot
         steps_completed += 1;
-        match self.rollback.create_pre_update_snapshot("test-module").await {
+        match self
+            .rollback
+            .create_pre_update_snapshot("test-module")
+            .await
+        {
             Ok(_) => {}
             Err(e) => {
                 errors.push(format!("Failed to create pre-update snapshot: {}", e));
@@ -116,7 +120,11 @@ impl EvolutionTestRunner {
 
         // Step 3: Create post-update snapshot
         steps_completed += 1;
-        match self.rollback.create_post_update_snapshot("test-module").await {
+        match self
+            .rollback
+            .create_post_update_snapshot("test-module")
+            .await
+        {
             Ok(_) => {}
             Err(e) => {
                 errors.push(format!("Failed to create post-update snapshot: {}", e));
@@ -382,7 +390,11 @@ impl EvolutionTestRunner {
                  Steps Completed: {}\n\
                  Warnings: {}\n",
                 result.test_name,
-                if result.passed { "✓ PASSED" } else { "✗ FAILED" },
+                if result.passed {
+                    "✓ PASSED"
+                } else {
+                    "✗ FAILED"
+                },
                 result.duration,
                 result.steps_completed,
                 result.warnings.len()
@@ -418,9 +430,7 @@ impl EvolutionTestRunner {
 /// 6. Hot swap modules
 /// 7. Verify new version
 /// 8. Rollback on failure
-pub async fn run_complete_evolution_scenario(
-    runner: &EvolutionTestRunner,
-) -> Result<()> {
+pub async fn run_complete_evolution_scenario(runner: &EvolutionTestRunner) -> Result<()> {
     println!("=== Starting Complete Self-Evolution Scenario ===\n");
 
     // Run all tests
@@ -471,13 +481,15 @@ mod tests {
             Arc::new(BuildTools::new(github.clone(), PathBuf::from("/tmp/work"))),
         ));
 
-        let rollback = Arc::new(RollbackRecoveryManager::new(
-            runtime.clone(),
-            PathBuf::from("/tmp/snapshots"),
-            true,
-            10,
-        )
-        .unwrap());
+        let rollback = Arc::new(
+            RollbackRecoveryManager::new(
+                runtime.clone(),
+                PathBuf::from("/tmp/snapshots"),
+                true,
+                10,
+            )
+            .unwrap(),
+        );
 
         let runner = EvolutionTestRunner::new(
             github.clone(),

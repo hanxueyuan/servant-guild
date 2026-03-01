@@ -13,7 +13,7 @@ use tokio::time::sleep;
 async fn setup_test_guild() -> Result<TestGuild, Box<dyn std::error::Error>> {
     // This would create a full Guild instance for testing
     // For now, we document the expected test structure
-    
+
     Ok(TestGuild {
         // Placeholder
     })
@@ -26,38 +26,38 @@ struct TestGuild {
 #[tokio::test]
 async fn test_guild_initialization() {
     // Test that a Guild can be initialized with all core servants
-    
+
     // Expected flow:
     // 1. Create consensus engine
     // 2. Register all 5 core servants
     // 3. Create each servant with consensus reference
     // 4. Verify all servants are in Starting status
-    
+
     // TODO: Implement when Rust toolchain is available
 }
 
 #[tokio::test]
 async fn test_guild_start_stop_lifecycle() {
     // Test the start/stop lifecycle
-    
+
     // Expected flow:
     // 1. Create Guild
     // 2. Call start() - all servants should transition to Ready
     // 3. Call stop() - all servants should transition to Paused
-    
+
     // TODO: Implement when Rust toolchain is available
 }
 
 #[tokio::test]
 async fn test_consensus_voting_flow() {
     // Test the complete voting flow
-    
+
     // Expected flow:
     // 1. Coordinator creates a proposal
     // 2. Each servant casts their vote
     // 3. Speaker evaluates the result
     // 4. Verify correct outcome based on votes
-    
+
     // Test case 1: Normal quorum (3/5 yes votes)
     // Test case 2: Critical quorum (5/5 yes votes)
     // Test case 3: Rejection (more no votes)
@@ -67,7 +67,7 @@ async fn test_consensus_voting_flow() {
 #[tokio::test]
 async fn test_prudent_agency_low_risk_action() {
     // Test low-risk action execution (auto-approved)
-    
+
     // Expected flow:
     // 1. Initiate low-risk action (e.g., file read)
     // 2. Verify no proposal is created
@@ -79,7 +79,7 @@ async fn test_prudent_agency_low_risk_action() {
 #[tokio::test]
 async fn test_prudent_agency_high_risk_action() {
     // Test high-risk action execution (requires approval)
-    
+
     // Expected flow:
     // 1. Initiate high-risk action (e.g., file delete)
     // 2. Verify proposal is created
@@ -92,7 +92,7 @@ async fn test_prudent_agency_high_risk_action() {
 #[tokio::test]
 async fn test_prudent_agency_rollback() {
     // Test rollback on failed action
-    
+
     // Expected flow:
     // 1. Initiate medium-risk action
     // 2. Create snapshot
@@ -104,7 +104,7 @@ async fn test_prudent_agency_rollback() {
 #[tokio::test]
 async fn test_worker_tool_execution() {
     // Test Worker tool execution through the Guild
-    
+
     // Expected flow:
     // 1. Request tool execution through Guild
     // 2. Warden performs security check
@@ -116,7 +116,7 @@ async fn test_worker_tool_execution() {
 #[tokio::test]
 async fn test_warden_security_policy() {
     // Test Warden security policy enforcement
-    
+
     // Test cases:
     // 1. Low-risk operation allowed
     // 2. High-risk operation requires approval
@@ -127,7 +127,7 @@ async fn test_warden_security_policy() {
 #[tokio::test]
 async fn test_speaker_proposal_management() {
     // Test Speaker proposal and communication
-    
+
     // Expected flow:
     // 1. Speaker creates proposal
     // 2. Broadcasts to all servants
@@ -138,7 +138,7 @@ async fn test_speaker_proposal_management() {
 #[tokio::test]
 async fn test_contractor_resource_management() {
     // Test Contractor resource and config management
-    
+
     // Test cases:
     // 1. Register resource
     // 2. Health check
@@ -149,9 +149,9 @@ async fn test_contractor_resource_management() {
 #[tokio::test]
 async fn test_full_collaboration_flow() {
     // Test a complete multi-agent collaboration scenario
-    
+
     // Scenario: User requests a code change
-    
+
     // Expected flow:
     // 1. Coordinator receives request
     // 2. Coordinator decomposes task
@@ -167,7 +167,7 @@ async fn test_full_collaboration_flow() {
 #[tokio::test]
 async fn test_owner_veto_power() {
     // Test owner (Coordinator) veto capability
-    
+
     // Expected flow:
     // 1. Proposal is created
     // 2. Votes are cast (potentially passing)
@@ -179,7 +179,7 @@ async fn test_owner_veto_power() {
 #[tokio::test]
 async fn test_constitution_governance() {
     // Test constitutional governance rules
-    
+
     // Test cases:
     // 1. Code change requires normal quorum
     // 2. Security change requires critical quorum
@@ -232,12 +232,12 @@ fn assert_consensus_result(result: &str, expected: &str) {
 async fn documentation_guild_usage() {
     // This test documents how the Guild API should be used.
     // It will compile and pass once the full implementation is available.
-    
+
     /*
     use zeroclaw::guild::{Guild, GuildConfig};
     use zeroclaw::consensus::{DecisionType, Vote};
     use zeroclaw::safety::PrudentConfig;
-    
+
     // Create a Guild with custom configuration
     let config = GuildConfig {
         consensus: ConsensusConfig::default(),
@@ -245,42 +245,42 @@ async fn documentation_guild_usage() {
         enable_rollback: true,
         max_concurrent_tasks: 10,
     };
-    
+
     let guild = Guild::with_config(config).await?;
-    
+
     // Start all servants
     guild.start().await?;
-    
+
     // Process a user request
     let result = guild.process("Create a new module".to_string()).await?;
     assert!(result.success);
-    
+
     // Create a proposal for voting
     let proposal_id = guild.propose(
         "Add authentication module".to_string(),
         "Implement OAuth2 authentication".to_string(),
         DecisionType::CodeChange,
     ).await?;
-    
+
     // Cast votes
     guild.vote(&proposal_id, ServantRole::Worker, Vote::Yes, "Approve".to_string()).await?;
     guild.vote(&proposal_id, ServantRole::Warden, Vote::Yes, "Secure approach".to_string()).await?;
     guild.vote(&proposal_id, ServantRole::Speaker, Vote::Yes, "Good proposal".to_string()).await?;
-    
+
     // Evaluate the proposal
     let tally = guild.consensus().evaluate_proposal(&proposal_id)?;
     assert_eq!(tally.result, ConsensusResult::Passed);
-    
+
     // Execute a tool
     let result = guild.execute_tool("write_file", serde_json::json!({
         "path": "/src/auth/mod.rs",
         "content": "// Auth module"
     })).await?;
-    
+
     // Stop the guild
     guild.stop().await?;
     */
-    
+
     // For now, just pass
     assert!(true);
 }
@@ -289,16 +289,16 @@ async fn documentation_guild_usage() {
 #[tokio::test]
 async fn documentation_prudent_agency_usage() {
     // This test documents how the Prudent Agency API should be used.
-    
+
     /*
     use zeroclaw::safety::{PrudentAgency, PrudentConfig, ActionType};
     use zeroclaw::consensus::ConsensusEngine;
-    
+
     // Setup
     let consensus = Arc::new(ConsensusEngine::new());
     let audit_log = Arc::new(AuditLog::new()?);
     let rollback_manager = Arc::new(RollbackManager::new()?);
-    
+
     // Create Prudent Agency
     let config = PrudentConfig {
         approval_threshold: 5,
@@ -307,10 +307,10 @@ async fn documentation_prudent_agency_usage() {
         auto_approve_routine: true,
         unanimous_for_critical: true,
     };
-    
+
     let prudent = PrudentAgency::new(consensus, audit_log, rollback_manager)
         .with_config(config);
-    
+
     // Initiate a low-risk action
     let action_id = prudent.initiate(
         ActionType::FileRead,
@@ -318,17 +318,17 @@ async fn documentation_prudent_agency_usage() {
         "worker".to_string(),
         "Read configuration file".to_string(),
     ).await?;
-    
+
     // Check approval (should be auto-approved for low risk)
     let approval = prudent.check_approval(&action_id).await?;
     assert!(matches!(approval, ApprovalStatus::Approved | ApprovalStatus::NotRequired));
-    
+
     // Execute the action
     let result = prudent.execute(&action_id, |op| {
         // Actual file reading logic
         Ok(serde_json::json!({"content": "..."}))
     }).await?;
-    
+
     // Initiate a high-risk action
     let action_id = prudent.initiate(
         ActionType::FileDelete,
@@ -336,17 +336,17 @@ async fn documentation_prudent_agency_usage() {
         "worker".to_string(),
         "Delete production env file".to_string(),
     ).await?;
-    
+
     // This should require approval
     let approval = prudent.check_approval(&action_id).await?;
     assert!(matches!(approval, ApprovalStatus::Pending));
-    
+
     // After voting and approval, execute
     // ... voting flow ...
-    
+
     // If execution fails, automatic rollback
     */
-    
+
     assert!(true);
 }
 
@@ -358,21 +358,21 @@ async fn documentation_prudent_agency_usage() {
 async fn test_guild_throughput() {
     // Test how many requests the guild can process
     // This would be a benchmark in a real implementation
-    
+
     // Expected: Process at least 100 requests per second
 }
 
 #[tokio::test]
 async fn test_consensus_latency() {
     // Test voting round-trip time
-    
+
     // Expected: Complete a voting round in under 100ms
 }
 
 #[tokio::test]
 async fn test_snapshot_performance() {
     // Test snapshot creation and restoration speed
-    
+
     // Expected: Create snapshot in under 50ms
     // Expected: Restore from snapshot in under 100ms
 }

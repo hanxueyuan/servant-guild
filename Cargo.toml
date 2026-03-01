@@ -163,6 +163,19 @@ opentelemetry-otlp = { version = "0.31", default-features = false, features = ["
 # Serial port for peripheral communication (STM32, etc.)
 tokio-serial = { version = "5", default-features = false, optional = true }
 
+# Phase 3: Orchestration dependencies
+cargo_toml = { version = "0.20" }
+
+# Optional: Git integration (requires libgit2-dev)
+git2 = { version = "0.19", optional = true, default-features = false, features = ["https"] }
+
+# Optional: Wasm optimization (requires binaryen)
+binaryen = { version = "0.12", optional = true }
+
+# Embedded KV store for rollback points
+sled = { version = "0.34", optional = true }
+md5 = "0.8.0"
+
 # USB device enumeration (hardware discovery) — only on platforms nusb supports
 # (Linux, macOS, Windows). Android/Termux uses target_os="android" and is excluded.
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
@@ -200,27 +213,6 @@ libc = "0.2"
 version = "28.0"
 features = ["component-model", "async", "cache"]
 
-# Phase 3: Orchestration dependencies
-cargo-toml = { version = "0.20", optional = true }
-
-# Optional: Git integration (requires libgit2-dev)
-git2 = { version = "0.19", optional = true, default-features = false, features = ["https"] }
-
-# Optional: Wasm optimization (requires binaryen)
-binaryen = { version = "0.12", optional = true }
-
-# Embedded KV store for rollback points
-sled = { version = "0.34", optional = true }
-
-[features]
-default = ["runtime-wasm"]
-runtime-wasm = ["wasmtime"]
-github-integration = ["dep:git2"]
-wasm-optimization = ["dep:binaryen"]
-rollback-recovery = ["dep:sled"]
-phase3-orchestration = ["github-integration", "rollback-recovery"]
-full = ["runtime-wasm", "phase3-orchestration", "wasm-optimization"]
-
 [dependencies.wasmtime-wasi]
 version = "28.0"
 
@@ -234,8 +226,13 @@ version = "3.0"
 version = "0.36.0"
 
 [features]
-default = []
+default = ["runtime-wasm"]
 runtime-wasm = []
+github-integration = ["dep:git2"]
+wasm-optimization = ["dep:binaryen"]
+rollback-recovery = ["dep:sled"]
+phase3-orchestration = ["github-integration", "rollback-recovery"]
+full = ["runtime-wasm", "phase3-orchestration", "wasm-optimization"]
 hardware = ["nusb", "tokio-serial"]
 channel-matrix = ["dep:matrix-sdk"]
 channel-lark = ["dep:prost"]

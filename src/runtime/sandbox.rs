@@ -59,13 +59,13 @@ impl Default for SandboxConfig {
 
         Self {
             sandbox_root: PathBuf::from("/tmp/servant-sandboxes"),
-            max_memory_mb: 2048,        // 2GB
-            max_cpu_time_secs: 600,     // 10 minutes CPU time
-            max_wall_time_secs: 900,    // 15 minutes wall time
-            max_output_mb: 100,         // 100MB output
+            max_memory_mb: 2048,     // 2GB
+            max_cpu_time_secs: 600,  // 10 minutes CPU time
+            max_wall_time_secs: 900, // 15 minutes wall time
+            max_output_mb: 100,      // 100MB output
             allowed_domains,
-            network_allowed: true,      // Need network for cargo fetch
-            use_container: false,       // Default to process isolation
+            network_allowed: true, // Need network for cargo fetch
+            use_container: false,  // Default to process isolation
             container_image: Some("rust:1.87".to_string()),
             env_passthrough: vec![
                 "PATH".to_string(),
@@ -164,13 +164,11 @@ impl BuildSandbox {
     fn create_isolated_workspace(workspace: &Path) -> Result<()> {
         // Create parent directories
         if let Some(parent) = workspace.parent() {
-            std::fs::create_dir_all(parent)
-                .context("Failed to create sandbox root")?;
+            std::fs::create_dir_all(parent).context("Failed to create sandbox root")?;
         }
 
         // Create workspace
-        std::fs::create_dir_all(workspace)
-            .context("Failed to create workspace")?;
+        std::fs::create_dir_all(workspace).context("Failed to create workspace")?;
 
         // Set restrictive permissions (rwx for owner only)
         #[cfg(unix)]
@@ -193,10 +191,7 @@ impl BuildSandbox {
     ) -> Result<SandboxResult> {
         let start_time = std::time::Instant::now();
 
-        info!(
-            "Executing in sandbox {}: {} {:?}",
-            self.id, program, args
-        );
+        info!("Executing in sandbox {}: {} {:?}", self.id, program, args);
 
         // Check if sandbox is still active
         if !*self.active.read().await {
@@ -204,7 +199,8 @@ impl BuildSandbox {
         }
 
         let result = if self.config.use_container {
-            self.execute_in_container(program, args, working_dir).await?
+            self.execute_in_container(program, args, working_dir)
+                .await?
         } else {
             self.execute_with_limits(program, args, working_dir).await?
         };
@@ -254,11 +250,11 @@ impl BuildSandbox {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
-            
+
             // This will be applied in pre_exec
             let max_memory = self.config.max_memory_mb * 1024 * 1024;
             let max_cpu_time = self.config.max_cpu_time_secs;
-            
+
             unsafe {
                 cmd.pre_exec(move || {
                     // Set memory limit (RLIMIT_DATA)
@@ -281,8 +277,7 @@ impl BuildSandbox {
         }
 
         // Spawn and capture output
-        let mut child = cmd.spawn()
-            .context("Failed to spawn process")?;
+        let mut child = cmd.spawn().context("Failed to spawn process")?;
 
         // Store PID
         *self.pid.write().await = Some(child.id());
@@ -294,7 +289,7 @@ impl BuildSandbox {
         tokio::select! {
             result = child.wait() => {
                 let status = result.context("Failed to wait for process")?;
-                
+
                 // Read output
                 let stdout = Self::read_stream(child.stdout.take()).await?;
                 let stderr = Self::read_stream(child.stderr.take()).await?;
@@ -312,7 +307,7 @@ impl BuildSandbox {
                 // Kill the process
                 warn!("Process timed out, killing...");
                 let _ = child.kill().await;
-                
+
                 Ok(InternalResult {
                     success: false,
                     exit_code: None,
@@ -332,7 +327,10 @@ impl BuildSandbox {
         args: &[&str],
         working_dir: Option<&Path>,
     ) -> Result<InternalResult> {
-        let image = self.config.container_image.as_ref()
+        let image = self
+            .config
+            .container_image
+            .as_ref()
             .context("Container image not specified")?;
 
         let work_dir = working_dir
@@ -350,7 +348,7 @@ impl BuildSandbox {
             "--memory".to_string(),
             format!("{}m", self.config.max_memory_mb),
             "--cpus".to_string(),
-            "2".to_string(),  // Limit to 2 CPUs
+            "2".to_string(), // Limit to 2 CPUs
         ];
 
         // Add network configuration
@@ -376,8 +374,7 @@ impl BuildSandbox {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = cmd.spawn()
-            .context("Failed to spawn docker")?;
+        let mut child = cmd.spawn().context("Failed to spawn docker")?;
 
         // Store PID
         *self.pid.write().await = Some(child.id());
@@ -389,7 +386,7 @@ impl BuildSandbox {
         tokio::select! {
             result = child.wait() => {
                 let status = result.context("Failed to wait for container")?;
-                
+
                 let stdout = Self::read_stream(child.stdout.take()).await?;
                 let stderr = Self::read_stream(child.stderr.take()).await?;
 
@@ -405,7 +402,7 @@ impl BuildSandbox {
             _ = timeout => {
                 warn!("Container timed out, killing...");
                 let _ = child.kill().await;
-                
+
                 Ok(InternalResult {
                     success: false,
                     exit_code: None,
@@ -421,17 +418,17 @@ impl BuildSandbox {
     /// Read from an async stream
     async fn read_stream(stream: Option<tokio::process::ChildStdout>) -> Result<String> {
         let mut output = String::new();
-        
+
         if let Some(stream) = stream {
             let reader = BufReader::new(stream);
             let mut lines = reader.lines();
-            
+
             while let Some(line) = lines.next_line().await? {
                 output.push_str(&line);
                 output.push('\n');
             }
         }
-        
+
         Ok(output)
     }
 
@@ -486,8 +483,7 @@ impl BuildSandbox {
 
         // Remove workspace
         if self.workspace.exists() {
-            std::fs::remove_dir_all(&self.workspace)
-                .context("Failed to remove workspace")?;
+            std::fs::remove_dir_all(&self.workspace).context("Failed to remove workspace")?;
         }
 
         info!("Cleaned up sandbox: {}", self.id);
@@ -574,11 +570,13 @@ mod tests {
     #[tokio::test]
     async fn test_sandbox_creation() {
         let config = SandboxConfig::default();
-        let sandbox = BuildSandbox::new("test-sandbox".to_string(), config).await.unwrap();
-        
+        let sandbox = BuildSandbox::new("test-sandbox".to_string(), config)
+            .await
+            .unwrap();
+
         assert!(sandbox.workspace.exists());
         assert_eq!(sandbox.id, "test-sandbox");
-        
+
         // Cleanup
         sandbox.cleanup().await.unwrap();
     }
@@ -586,13 +584,18 @@ mod tests {
     #[tokio::test]
     async fn test_sandbox_execute_echo() {
         let config = SandboxConfig::default();
-        let sandbox = BuildSandbox::new("echo-test".to_string(), config).await.unwrap();
-        
-        let result = sandbox.execute("echo", &["hello", "world"], None).await.unwrap();
-        
+        let sandbox = BuildSandbox::new("echo-test".to_string(), config)
+            .await
+            .unwrap();
+
+        let result = sandbox
+            .execute("echo", &["hello", "world"], None)
+            .await
+            .unwrap();
+
         assert!(result.success);
         assert!(result.stdout.contains("hello world"));
-        
+
         // Cleanup
         sandbox.cleanup().await.unwrap();
     }
@@ -604,7 +607,7 @@ mod tests {
             .with_time_limits(300, 600)
             .with_network(false)
             .with_env("RUST_LOG".to_string(), "debug".to_string());
-        
+
         assert_eq!(config.max_memory_mb, 4096);
         assert_eq!(config.max_cpu_time_secs, 300);
         assert!(!config.network_allowed);

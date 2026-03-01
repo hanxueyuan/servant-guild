@@ -21,9 +21,9 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::consensus::{ConsensusEngine, Proposal, Vote};
-use crate::runtime::{BuildPipeline, PipelineConfig, PipelineResult};
-use crate::safety::canary::{CanaryRunner, CanaryTester, CanaryResult};
 use crate::providers::LLMProvider;
+use crate::runtime::{BuildPipeline, PipelineConfig, PipelineResult};
+use crate::safety::canary::{CanaryResult, CanaryRunner, CanaryTester};
 
 /// Evolution workflow manager
 pub struct EvolutionWorkflow {
@@ -115,10 +115,7 @@ pub enum EvolutionTrigger {
         threshold: f64,
     },
     /// Error rate increased
-    ErrorRateIncrease {
-        current_rate: f64,
-        threshold: f64,
-    },
+    ErrorRateIncrease { current_rate: f64, threshold: f64 },
     /// Security vulnerability found
     SecurityVulnerability {
         cve: Option<String>,
@@ -126,19 +123,11 @@ pub enum EvolutionTrigger {
         component: String,
     },
     /// Scheduled optimization
-    ScheduledOptimization {
-        schedule_id: String,
-    },
+    ScheduledOptimization { schedule_id: String },
     /// User-requested improvement
-    UserRequested {
-        user_id: String,
-        request: String,
-    },
+    UserRequested { user_id: String, request: String },
     /// Self-identified improvement
-    SelfIdentified {
-        analysis: String,
-        confidence: f64,
-    },
+    SelfIdentified { analysis: String, confidence: f64 },
     /// Dependency update available
     DependencyUpdate {
         package: String,
@@ -317,10 +306,10 @@ impl EvolutionWorkflow {
                 bail!("Maximum concurrent workflows reached");
             }
         }
-        
+
         let workflow_id = format!("evo-{}", uuid::Uuid::new_v4());
         let now = chrono::Utc::now();
-        
+
         let state = WorkflowState {
             id: workflow_id.clone(),
             trigger,
@@ -335,23 +324,25 @@ impl EvolutionWorkflow {
             human_approval_required: false,
             human_approved: None,
         };
-        
+
         self.active.write().await.insert(workflow_id.clone(), state);
-        
+
         info!("Started evolution workflow: {}", workflow_id);
-        
+
         // Begin execution
         self.execute_workflow(&workflow_id).await?;
-        
+
         Ok(workflow_id)
     }
 
     /// Execute the workflow
     async fn execute_workflow(&self, workflow_id: &str) -> Result<()> {
         loop {
-            let state = self.get_state(workflow_id).await
+            let state = self
+                .get_state(workflow_id)
+                .await
                 .context("Workflow not found")?;
-            
+
             match state.stage {
                 WorkflowStage::Analysis => {
                     self.run_analysis(workflow_id).await?;
@@ -377,32 +368,30 @@ impl EvolutionWorkflow {
                 WorkflowStage::Learning => {
                     self.learn_from_results(workflow_id).await?;
                 }
-                WorkflowStage::Completed |
-                WorkflowStage::Failed |
-                WorkflowStage::RolledBack => {
+                WorkflowStage::Completed | WorkflowStage::Failed | WorkflowStage::RolledBack => {
                     // Workflow finished
                     self.finalize_workflow(workflow_id).await?;
                     break;
                 }
             }
         }
-        
+
         Ok(())
     }
 
     /// Run analysis stage
     async fn run_analysis(&self, workflow_id: &str) -> Result<()> {
         info!("Workflow {}: Running analysis", workflow_id);
-        
+
         let mut active = self.active.write().await;
         let state = active.get_mut(workflow_id).context("Workflow not found")?;
-        
+
         // Analyze trigger and identify improvement opportunities
         let analysis_result = self.analyze_trigger(&state.trigger).await?;
-        
+
         state.stage = WorkflowStage::ProposalGeneration;
         state.updated_at = chrono::Utc::now();
-        
+
         Ok(())
     }
 
@@ -414,11 +403,11 @@ impl EvolutionWorkflow {
                 "Analyze this evolution trigger and identify improvement opportunities:\n{:?}",
                 trigger
             );
-            
+
             // Would call LLM here
             debug!("Would analyze with LLM: {}", prompt);
         }
-        
+
         // Default analysis
         Ok(AnalysisResult {
             opportunities: vec!["Performance optimization".to_string()],
@@ -430,46 +419,56 @@ impl EvolutionWorkflow {
     /// Generate proposal stage
     async fn generate_proposal(&self, workflow_id: &str) -> Result<()> {
         info!("Workflow {}: Generating proposal", workflow_id);
-        
+
         let mut active = self.active.write().await;
         let state = active.get_mut(workflow_id).context("Workflow not found")?;
-        
+
         // Generate evolution proposal
         let proposal = self.create_proposal(&state.trigger).await?;
-        
+
         // Check if human approval required
         if proposal.risk_assessment.score >= self.config.high_risk_threshold {
             state.human_approval_required = true;
         }
-        
+
         state.proposal = Some(proposal);
         state.stage = WorkflowStage::Validation;
         state.updated_at = chrono::Utc::now();
-        
+
         Ok(())
     }
 
     /// Create evolution proposal
     async fn create_proposal(&self, trigger: &EvolutionTrigger) -> Result<EvolutionProposal> {
         let (title, description) = match trigger {
-            EvolutionTrigger::PerformanceDegradation { metric, current_value, threshold } => {
-                (
-                    format!("Performance optimization for {}", metric),
-                    format!("Metric {} degraded to {} (threshold: {})", metric, current_value, threshold),
-                )
-            }
-            EvolutionTrigger::SecurityVulnerability { cve, severity, component } => {
-                (
-                    format!("Security patch for {}", component),
-                    format!("{} severity vulnerability in {} ({:?})", severity, component, cve),
-                )
-            }
+            EvolutionTrigger::PerformanceDegradation {
+                metric,
+                current_value,
+                threshold,
+            } => (
+                format!("Performance optimization for {}", metric),
+                format!(
+                    "Metric {} degraded to {} (threshold: {})",
+                    metric, current_value, threshold
+                ),
+            ),
+            EvolutionTrigger::SecurityVulnerability {
+                cve,
+                severity,
+                component,
+            } => (
+                format!("Security patch for {}", component),
+                format!(
+                    "{} severity vulnerability in {} ({:?})",
+                    severity, component, cve
+                ),
+            ),
             _ => (
                 "System improvement".to_string(),
                 "Proposed improvement based on analysis".to_string(),
             ),
         };
-        
+
         Ok(EvolutionProposal {
             id: format!("prop-{}", uuid::Uuid::new_v4()),
             title,
@@ -497,67 +496,69 @@ impl EvolutionWorkflow {
     /// Validate proposal stage
     async fn validate_proposal(&self, workflow_id: &str) -> Result<()> {
         info!("Workflow {}: Validating proposal", workflow_id);
-        
+
         let mut active = self.active.write().await;
         let state = active.get_mut(workflow_id).context("Workflow not found")?;
-        
+
         // Check if human approval required and not yet given
         if state.human_approval_required && state.human_approved.is_none() {
             // Wait for human approval
             debug!("Workflow {} waiting for human approval", workflow_id);
             return Ok(());
         }
-        
+
         // If human approval required and rejected
         if state.human_approval_required && state.human_approved == Some(false) {
             state.stage = WorkflowStage::Failed;
             state.errors.push("Human approval rejected".to_string());
             return Ok(());
         }
-        
+
         state.stage = WorkflowStage::Building;
         state.updated_at = chrono::Utc::now();
-        
+
         Ok(())
     }
 
     /// Build changes stage
     async fn build_changes(&self, workflow_id: &str) -> Result<()> {
         info!("Workflow {}: Building changes", workflow_id);
-        
+
         let mut active = self.active.write().await;
         let state = active.get_mut(workflow_id).context("Workflow not found")?;
-        
+
         // Run build pipeline
         let result = self.pipeline.run(None).await?;
-        
+
         if !result.success {
             state.stage = WorkflowStage::Failed;
-            state.errors.push(format!("Build failed: {:?}", result.error));
+            state
+                .errors
+                .push(format!("Build failed: {:?}", result.error));
             return Ok(());
         }
-        
+
         state.build_result = Some(result);
         state.stage = WorkflowStage::Consensus;
         state.updated_at = chrono::Utc::now();
-        
+
         Ok(())
     }
 
     /// Seek consensus stage
     async fn seek_consensus(&self, workflow_id: &str) -> Result<()> {
         info!("Workflow {}: Seeking consensus", workflow_id);
-        
+
         let mut active = self.active.write().await;
         let state = active.get_mut(workflow_id).context("Workflow not found")?;
-        
+
         let proposal = state.proposal.as_ref().context("No proposal")?;
-        
+
         if !proposal.requires_consensus {
             state.stage = WorkflowStage::Deployment;
             return Ok(());
         }
-        
+
         // Create consensus proposal
         let consensus_proposal = self.consensus.create_proposal(
             proposal.title.clone(),
@@ -566,9 +567,9 @@ impl EvolutionWorkflow {
             crate::consensus::DecisionType::UpdateDeployment,
             Some(serde_json::to_value(&proposal.changes)?),
         )?;
-        
+
         state.consensus_proposal_id = Some(consensus_proposal.id.clone());
-        
+
         // Simulate voting (in real implementation, servants would vote)
         // For now, auto-approve if confidence is high
         if proposal.confidence > 0.8 {
@@ -579,7 +580,7 @@ impl EvolutionWorkflow {
                 } else {
                     Vote::Abstain
                 };
-                
+
                 let _ = self.consensus.cast_vote(
                     &consensus_proposal.id,
                     servant,
@@ -588,29 +589,31 @@ impl EvolutionWorkflow {
                 );
             }
         }
-        
+
         // Evaluate
         let tally = self.consensus.evaluate_proposal(&consensus_proposal.id)?;
-        
+
         if tally.result == crate::consensus::ConsensusResult::Approved {
             state.stage = WorkflowStage::Deployment;
         } else {
             state.stage = WorkflowStage::Failed;
-            state.errors.push(format!("Consensus not reached: {:?}", tally.result));
+            state
+                .errors
+                .push(format!("Consensus not reached: {:?}", tally.result));
         }
-        
+
         state.updated_at = chrono::Utc::now();
-        
+
         Ok(())
     }
 
     /// Deploy changes stage
     async fn deploy_changes(&self, workflow_id: &str) -> Result<()> {
         info!("Workflow {}: Deploying changes", workflow_id);
-        
+
         let mut active = self.active.write().await;
         let state = active.get_mut(workflow_id).context("Workflow not found")?;
-        
+
         // Run canary if enabled
         if self.config.enable_canary {
             state.stage = WorkflowStage::Monitoring;
@@ -618,25 +621,25 @@ impl EvolutionWorkflow {
             // Direct deployment
             state.stage = WorkflowStage::Monitoring;
         }
-        
+
         state.updated_at = chrono::Utc::now();
-        
+
         Ok(())
     }
 
     /// Monitor deployment stage
     async fn monitor_deployment(&self, workflow_id: &str) -> Result<()> {
         info!("Workflow {}: Monitoring deployment", workflow_id);
-        
+
         let mut active = self.active.write().await;
         let state = active.get_mut(workflow_id).context("Workflow not found")?;
-        
+
         // Run canary test
         let runner = CanaryRunner::new(self.canary.clone());
         let result = runner.run("system", "new-version").await?;
-        
+
         state.canary_result = Some(result.clone());
-        
+
         if result.success {
             state.stage = WorkflowStage::Learning;
         } else {
@@ -647,59 +650,64 @@ impl EvolutionWorkflow {
             }
             state.errors.push("Canary test failed".to_string());
         }
-        
+
         state.updated_at = chrono::Utc::now();
-        
+
         Ok(())
     }
 
     /// Learn from results stage
     async fn learn_from_results(&self, workflow_id: &str) -> Result<()> {
         info!("Workflow {}: Learning from results", workflow_id);
-        
+
         let mut active = self.active.write().await;
         let state = active.get_mut(workflow_id).context("Workflow not found")?;
-        
+
         // Record lessons learned
         let lessons = self.extract_lessons(state).await?;
-        
+
         state.stage = WorkflowStage::Completed;
         state.updated_at = chrono::Utc::now();
-        
+
         // Store in learning system
         if !self.config.learning_mode {
             // Apply learned improvements
         }
-        
+
         Ok(())
     }
 
     /// Extract lessons from workflow
     async fn extract_lessons(&self, state: &WorkflowState) -> Result<Vec<String>> {
         let mut lessons = Vec::new();
-        
+
         if let Some(ref build_result) = state.build_result {
             if build_result.success {
                 lessons.push("Build pipeline executed successfully".to_string());
             }
         }
-        
+
         if let Some(ref canary_result) = state.canary_result {
             if canary_result.success {
                 lessons.push("Canary deployment successful".to_string());
             } else {
-                lessons.push(format!("Canary failed at {}%", canary_result.final_percentage));
+                lessons.push(format!(
+                    "Canary failed at {}%",
+                    canary_result.final_percentage
+                ));
             }
         }
-        
+
         Ok(lessons)
     }
 
     /// Finalize workflow
     async fn finalize_workflow(&self, workflow_id: &str) -> Result<()> {
-        let state = self.get_state(workflow_id).await
+        let state = self
+            .get_state(workflow_id)
+            .await
             .context("Workflow not found")?;
-        
+
         let record = WorkflowRecord {
             id: format!("rec-{}", uuid::Uuid::new_v4()),
             workflow_id: workflow_id.to_string(),
@@ -710,15 +718,17 @@ impl EvolutionWorkflow {
             timestamp: chrono::Utc::now(),
             lessons: self.extract_lessons(&state).await?,
         };
-        
+
         self.history.write().await.push(record);
         self.active.write().await.remove(workflow_id);
-        
+
         info!(
             "Workflow {} finalized: stage={:?}, success={}",
-            workflow_id, state.stage, state.stage == WorkflowStage::Completed
+            workflow_id,
+            state.stage,
+            state.stage == WorkflowStage::Completed
         );
-        
+
         Ok(())
     }
 
@@ -731,15 +741,15 @@ impl EvolutionWorkflow {
     pub async fn approve(&self, workflow_id: &str, approved: bool) -> Result<()> {
         let mut active = self.active.write().await;
         let state = active.get_mut(workflow_id).context("Workflow not found")?;
-        
+
         state.human_approved = Some(approved);
         state.updated_at = chrono::Utc::now();
-        
+
         if !approved {
             state.stage = WorkflowStage::Failed;
             state.errors.push("Human rejected proposal".to_string());
         }
-        
+
         Ok(())
     }
 
@@ -751,10 +761,10 @@ impl EvolutionWorkflow {
     /// Get workflow statistics
     pub async fn get_stats(&self) -> WorkflowStats {
         let history = self.history.read().await;
-        
+
         let total = history.len();
         let successful = history.iter().filter(|r| r.success).count();
-        
+
         WorkflowStats {
             total_workflows: total,
             successful,
@@ -787,15 +797,15 @@ pub struct WorkflowStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::ConsensusConfig;
     use crate::consensus::constitution::Constitution;
+    use crate::consensus::ConsensusConfig;
     use crate::safety::canary::{CanaryConfig, DefaultMetricsCollector};
     use std::path::PathBuf;
 
     #[test]
     fn test_workflow_config_defaults() {
         let config = WorkflowConfig::default();
-        
+
         assert!(!config.auto_evolve);
         assert_eq!(config.max_concurrent, 5);
         assert!(config.require_human_approval);
@@ -808,7 +818,7 @@ mod tests {
             current_value: 500.0,
             threshold: 200.0,
         };
-        
+
         match trigger {
             EvolutionTrigger::PerformanceDegradation { metric, .. } => {
                 assert_eq!(metric, "latency");
@@ -825,7 +835,7 @@ mod tests {
             factors: vec![],
             mitigations: vec!["Rollback available".to_string()],
         };
-        
+
         assert!(assessment.score < 70);
         assert_eq!(assessment.level, RiskLevel::Low);
     }

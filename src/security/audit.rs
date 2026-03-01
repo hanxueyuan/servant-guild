@@ -3,7 +3,7 @@
 //! Provides comprehensive audit logging for compliance and security
 
 use crate::security::*;
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -43,41 +43,41 @@ pub enum AuditOperation {
     Login,
     Logout,
     TokenRefresh,
-    
+
     // Agent operations
     AgentSpawn,
     AgentTerminate,
     AgentEvolve,
-    
+
     // Task operations
     TaskCreate,
     TaskExecute,
     TaskComplete,
     TaskFail,
-    
+
     // Consensus operations
     ConsensusPropose,
     ConsensusVote,
     ConsensusFinalize,
-    
+
     // Evolution operations
     EvolutionPropose,
     EvolutionApprove,
     EvolutionReject,
     EvolutionExecute,
-    
+
     // Security operations
     SecretAccess,
     SecretRotate,
     EncryptionKeyRotate,
     PolicyChange,
-    
+
     // Administrative
     ConfigurationChange,
     SystemRestart,
     BackupCreate,
     RestoreFromBackup,
-    
+
     // Data operations
     DataRead,
     DataWrite,
@@ -112,36 +112,36 @@ impl AuditLog {
             max_entries: 100000,
         }
     }
-    
+
     /// Log an audit entry
     pub async fn log(&self, entry: AuditEntry) {
         let mut entries = self.entries.write().await;
-        
+
         // Add entry
         entries.push_back(entry);
-        
+
         // Prune old entries
         if entries.len() > self.max_entries {
             let cutoff = Utc::now() - Duration::days(self.retention_days as i64);
             entries.retain(|e| e.timestamp > cutoff);
         }
     }
-    
+
     /// Get entries matching filter
     pub async fn query(&self, filter: &AuditFilter) -> Vec<AuditEntry> {
         let entries = self.entries.read().await;
-        
+
         entries
             .iter()
             .filter(|e| filter.matches(e))
             .cloned()
             .collect()
     }
-    
+
     /// Get entries for an agent
     pub async fn get_agent_entries(&self, agent: &str, limit: usize) -> Vec<AuditEntry> {
         let entries = self.entries.read().await;
-        
+
         entries
             .iter()
             .filter(|e| e.agent == agent)
@@ -149,18 +149,18 @@ impl AuditLog {
             .cloned()
             .collect()
     }
-    
+
     /// Get recent entries
     pub async fn recent(&self, limit: usize) -> Vec<AuditEntry> {
         let entries = self.entries.read().await;
-        
+
         entries.iter().rev().take(limit).cloned().collect()
     }
-    
+
     /// Get failed operations
     pub async fn failed_operations(&self, limit: usize) -> Vec<AuditEntry> {
         let entries = self.entries.read().await;
-        
+
         entries
             .iter()
             .rev()
@@ -169,15 +169,13 @@ impl AuditLog {
             .cloned()
             .collect()
     }
-    
+
     /// Export entries for compliance
     pub async fn export(&self, format: ExportFormat) -> Vec<u8> {
         let entries = self.entries.read().await;
-        
+
         match format {
-            ExportFormat::Json => {
-                serde_json::to_vec_pretty(&*entries).unwrap_or_default()
-            }
+            ExportFormat::Json => serde_json::to_vec_pretty(&*entries).unwrap_or_default(),
             ExportFormat::Csv => {
                 let mut csv = String::from("id,operation,agent,timestamp,result,details\n");
                 for entry in entries.iter() {
@@ -195,27 +193,29 @@ impl AuditLog {
             }
         }
     }
-    
+
     /// Get statistics
     pub async fn stats(&self) -> AuditStats {
         let entries = self.entries.read().await;
-        
+
         let total = entries.len();
         let mut success_count = 0;
         let mut failure_count = 0;
         let mut by_operation = std::collections::HashMap::new();
         let mut by_agent = std::collections::HashMap::new();
-        
+
         for entry in entries.iter() {
             match entry.result {
                 OperationResult::Success => success_count += 1,
                 _ => failure_count += 1,
             }
-            
-            *by_operation.entry(format!("{:?}", entry.operation)).or_insert(0) += 1;
+
+            *by_operation
+                .entry(format!("{:?}", entry.operation))
+                .or_insert(0) += 1;
             *by_agent.entry(entry.agent.clone()).or_insert(0) += 1;
         }
-        
+
         AuditStats {
             total_entries: total,
             success_count,
@@ -245,37 +245,37 @@ impl AuditFilter {
                 return false;
             }
         }
-        
+
         if let Some(ref operation) = self.operation {
             if std::mem::discriminant(&entry.operation) != std::mem::discriminant(operation) {
                 return false;
             }
         }
-        
+
         if let Some(ref result) = self.result {
             if std::mem::discriminant(&entry.result) != std::mem::discriminant(result) {
                 return false;
             }
         }
-        
+
         if let Some(ref level) = self.security_level {
             if entry.security_level != *level {
                 return false;
             }
         }
-        
+
         if let Some(start) = self.start_time {
             if entry.timestamp < start {
                 return false;
             }
         }
-        
+
         if let Some(end) = self.end_time {
             if entry.timestamp > end {
                 return false;
             }
         }
-        
+
         true
     }
 }
@@ -314,25 +314,25 @@ impl AuditEntry {
             duration_ms: None,
         }
     }
-    
+
     /// Set target
     pub fn with_target(mut self, target: String) -> Self {
         self.target = Some(target);
         self
     }
-    
+
     /// Set result
     pub fn with_result(mut self, result: OperationResult) -> Self {
         self.result = result;
         self
     }
-    
+
     /// Set source IP
     pub fn with_source_ip(mut self, ip: String) -> Self {
         self.source_ip = Some(ip);
         self
     }
-    
+
     /// Add detail
     pub fn add_detail(mut self, key: &str, value: &str) -> Self {
         self.details.insert(key.to_string(), value.to_string());
@@ -343,40 +343,40 @@ impl AuditEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_audit_log() {
         let log = AuditLog::new(90);
-        
+
         let entry = AuditEntry::new(
             AuditOperation::TaskExecute,
             "worker".to_string(),
             SecurityLevel::Normal,
         );
-        
+
         log.log(entry).await;
-        
+
         let stats = log.stats().await;
         assert_eq!(stats.total_entries, 1);
     }
-    
+
     #[tokio::test]
     async fn test_audit_filter() {
         let log = AuditLog::new(90);
-        
+
         let entry = AuditEntry::new(
             AuditOperation::TaskExecute,
             "worker".to_string(),
             SecurityLevel::Normal,
         );
-        
+
         log.log(entry).await;
-        
+
         let filter = AuditFilter {
             agent: Some("worker".to_string()),
             ..Default::default()
         };
-        
+
         let results = log.query(&filter).await;
         assert_eq!(results.len(), 1);
     }

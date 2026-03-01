@@ -1,12 +1,12 @@
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 // Mock implementations for the Safety Module (Design Spec)
 // In the real implementation, these would be imported from `zeroclaw::safety`
 pub mod safety_mock {
-    use std::path::{Path, PathBuf};
     use std::fs;
     use std::io;
+    use std::path::{Path, PathBuf};
 
     #[derive(Debug)]
     pub struct SafetyModule {
@@ -16,7 +16,10 @@ pub mod safety_mock {
 
     impl SafetyModule {
         pub fn new(audit_log: PathBuf, snapshot_dir: PathBuf) -> Self {
-            Self { audit_log, snapshot_dir }
+            Self {
+                audit_log,
+                snapshot_dir,
+            }
         }
 
         pub fn audit(&self, intent: &str, params: &str) -> io::Result<()> {
@@ -29,7 +32,9 @@ pub mod safety_mock {
 
         pub fn snapshot_file(&self, path: &Path) -> io::Result<PathBuf> {
             let file_name = path.file_name().unwrap();
-            let snapshot_path = self.snapshot_dir.join(format!("{}.snapshot", file_name.to_string_lossy()));
+            let snapshot_path = self
+                .snapshot_dir
+                .join(format!("{}.snapshot", file_name.to_string_lossy()));
             fs::copy(path, &snapshot_path)?;
             println!("[SNAPSHOT] Created snapshot at {:?}", snapshot_path);
             Ok(snapshot_path)
@@ -37,7 +42,10 @@ pub mod safety_mock {
 
         pub fn rollback_file(&self, snapshot_path: &Path, original_path: &Path) -> io::Result<()> {
             fs::copy(snapshot_path, original_path)?;
-            println!("[ROLLBACK] Restored {:?} from {:?}", original_path, snapshot_path);
+            println!(
+                "[ROLLBACK] Restored {:?} from {:?}",
+                original_path, snapshot_path
+            );
             Ok(())
         }
     }
@@ -70,10 +78,14 @@ mod tests {
         fs::write(&critical_file, "version = 1.0").unwrap();
 
         // 1. Audit
-        safety.audit("modify_config", "version = 2.0").expect("Audit failed");
+        safety
+            .audit("modify_config", "version = 2.0")
+            .expect("Audit failed");
 
         // 2. Snapshot (Level 1: File Copy)
-        let snapshot_path = safety.snapshot_file(&critical_file).expect("Snapshot failed");
+        let snapshot_path = safety
+            .snapshot_file(&critical_file)
+            .expect("Snapshot failed");
         assert!(snapshot_path.exists());
 
         // 3. Execute (Simulate modification)
@@ -83,7 +95,9 @@ mod tests {
 
         // 4. Simulate Failure & Rollback
         // Suppose verification failed, trigger rollback
-        safety.rollback_file(&snapshot_path, &critical_file).expect("Rollback failed");
+        safety
+            .rollback_file(&snapshot_path, &critical_file)
+            .expect("Rollback failed");
 
         // 5. Verify Consistency
         let restored_content = fs::read_to_string(&critical_file).unwrap();
