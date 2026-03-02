@@ -13,6 +13,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::time::{sleep, Duration, Instant};
 
 use super::{
     Servant, ServantError, ServantId, ServantResult, ServantRole, ServantStatus, ServantTask,
@@ -305,8 +306,9 @@ impl Worker {
 
         let mut registered = self.tools.write();
         for tool in tools {
-            registered.insert(tool.name.clone(), tool);
-            println!("[Worker] Registered tool: {}", tool.name);
+            let name = tool.name.clone();
+            registered.insert(name.clone(), tool);
+            println!("[Worker] Registered tool: {}", name);
         }
     }
 
@@ -344,6 +346,7 @@ impl Worker {
                     }),
                     error: Some("Max iterations exceeded".to_string()),
                     duration_ms: 0,
+                    retry_count: 0,
                 });
             }
 
@@ -368,11 +371,12 @@ impl Worker {
                     }),
                     error: None,
                     duration_ms: 0,
+                    retry_count: 0,
                 });
             }
 
             // Extract tool call from thought
-            let (tool_name, params) = self.extract_tool_call(&thought)?;
+            let (tool_name, params) = Self::extract_tool_call(&thought)?;
 
             // Phase 3: Observe - Execute tool and capture result
             let result = self.execute_tool(&tool_name, params.clone()).await?;
@@ -406,6 +410,7 @@ impl Worker {
                         }),
                         error: result.error,
                         duration_ms: 0,
+                        retry_count: 0,
                     });
                 }
             }
@@ -462,7 +467,7 @@ impl Worker {
     }
 
     /// Extract tool name and parameters from thought
-    fn extract_tool_call(&thought: &str) -> Result<(String, serde_json::Value), ServantError> {
+    fn extract_tool_call(thought: &str) -> Result<(String, serde_json::Value), ServantError> {
         // Parse thought to extract tool call
         // Format: "Action: tool_name" or "Action: tool_name(params)"
 
@@ -482,11 +487,6 @@ impl Worker {
 
         // Default action
         Ok(("file_read".to_string(), serde_json::json!({})))
-    }
-
-    /// Register a custom tool
-    pub fn register_tool(&self, tool: Tool) {
-        self.tools.write().insert(tool.name.clone(), tool);
     }
 
     /// Get available tools
@@ -596,7 +596,7 @@ impl Worker {
                 .cast_vote(
                     &proposal.id,
                     servant_id,
-                    Vote::Approve,
+                    Vote::Yes,
                     "requester approval".to_string(),
                 )
                 .map_err(|e| ServantError::InvalidTask(format!("Failed to cast vote: {e}")))?;
@@ -626,6 +626,7 @@ impl Worker {
         *self.status.write() = ServantStatus::Busy;
 
         // Execute tool based on name
+        let params_for_record = params.clone();
         let result = match tool_name {
             "read_file" => self.execute_read_file(params).await,
             "write_file" => self.execute_write_file(params).await,
@@ -645,12 +646,13 @@ impl Worker {
                 retry_count: 0,
             }),
         };
+        let result = result?;
 
         // Record execution
         let record = ExecutionRecord {
             id: uuid::Uuid::new_v4().to_string(),
             tool_name: tool_name.to_string(),
-            params: params.clone(),
+            params: params_for_record,
             result: result.clone(),
             executed_at: Utc::now(),
             approved: tool.requires_approval,
@@ -662,7 +664,7 @@ impl Worker {
         // Mark as ready
         *self.status.write() = ServantStatus::Ready;
 
-        result
+        Ok(result)
     }
 
     /// Execute read_file tool
@@ -911,15 +913,17 @@ impl Worker {
         let start = std::time::Instant::now();
 
         // List files in directory
-        let mut files = Vec::new();
+        let mut files: Vec<serde_json::Value> = Vec::new();
 
         if recursive {
             if let Ok(entries) = std::fs::read_dir(path) {
                 for entry in entries.flatten() {
                     if let Ok(meta) = entry.metadata() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        let path = entry.path().display().to_string();
                         files.push(serde_json::json!({
-                            "name": entry.file_name(),
-                            "path": entry.path().display(),
+                            "name": name,
+                            "path": path,
                             "is_dir": meta.is_dir(),
                             "size": meta.len(),
                         }));
@@ -929,7 +933,12 @@ impl Worker {
         } else {
             if let Ok(entries) = std::fs::read_dir(path) {
                 for entry in entries.flatten() {
-                    files.push(entry.file_name().to_string_lossy().to_string());
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let path = entry.path().display().to_string();
+                    files.push(serde_json::json!({
+                        "name": name,
+                        "path": path,
+                    }));
                 }
             }
         }
@@ -971,7 +980,7 @@ impl Worker {
                         for (line_num, line) in content.lines().enumerate() {
                             if line.contains(pattern) {
                                 matches.push(serde_json::json!({
-                                    "file": entry_path.display(),
+                                    "file": entry_path.display().to_string(),
                                     "line": line_num + 1,
                                     "content": line.trim(),
                                 }));
@@ -1008,21 +1017,39 @@ impl Worker {
 
         // Get file metadata
         match std::fs::metadata(path) {
-            Ok(meta) => Ok(ToolResult::success(
-                "file_info".to_string(),
-                serde_json::json!({
-                    "path": path,
-                    "is_dir": meta.is_dir(),
-                    "is_file": meta.is_file(),
-                    "size": meta.len(),
-                    "modified": meta.modified()
-                        .ok()
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs()),
-                    "permissions": format!("{:o}", meta.permissions().mode() & 0o777),
-                }),
-                start.elapsed().as_millis() as u64,
-            )),
+            Ok(meta) => {
+                let permissions = {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        format!("{:o}", meta.permissions().mode() & 0o777)
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        if meta.permissions().readonly() {
+                            "readonly".to_string()
+                        } else {
+                            "readwrite".to_string()
+                        }
+                    }
+                };
+
+                Ok(ToolResult::success(
+                    "file_info".to_string(),
+                    serde_json::json!({
+                        "path": path,
+                        "is_dir": meta.is_dir(),
+                        "is_file": meta.is_file(),
+                        "size": meta.len(),
+                        "modified": meta.modified()
+                            .ok()
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs()),
+                        "permissions": permissions,
+                    }),
+                    start.elapsed().as_millis() as u64,
+                ))
+            }
             Err(e) => Ok(ToolResult::failure(
                 "file_info".to_string(),
                 format!("Failed to get file info: {}", e),
@@ -1107,8 +1134,17 @@ impl Servant for Worker {
 
     async fn stop(&mut self) -> Result<(), ServantError> {
         *self.status.write() = ServantStatus::Stopping;
-        // Wait for current task to complete
-        // TODO: Implement graceful shutdown
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if self.current_task.read().is_none() {
+                break;
+            }
+            if Instant::now() >= deadline {
+                *self.current_task.write() = None;
+                break;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
         *self.status.write() = ServantStatus::Paused;
         Ok(())
     }

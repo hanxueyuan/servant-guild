@@ -3,9 +3,45 @@
 //! Provides Prometheus-compatible metrics for token usage and costs
 
 use crate::economic::*;
-use prometheus::core::AtomicF64;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+struct AtomicF64 {
+    bits: AtomicU64,
+}
+
+impl AtomicF64 {
+    fn new(value: f64) -> Self {
+        Self {
+            bits: AtomicU64::new(value.to_bits()),
+        }
+    }
+
+    fn load(&self, order: Ordering) -> f64 {
+        f64::from_bits(self.bits.load(order))
+    }
+
+    fn store(&self, value: f64, order: Ordering) {
+        self.bits.store(value.to_bits(), order);
+    }
+
+    fn fetch_add(&self, value: f64, order: Ordering) -> f64 {
+        let mut current_bits = self.bits.load(order);
+        loop {
+            let current = f64::from_bits(current_bits);
+            let next_bits = (current + value).to_bits();
+            match self.bits.compare_exchange_weak(
+                current_bits,
+                next_bits,
+                order,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return current,
+                Err(observed) => current_bits = observed,
+            }
+        }
+    }
+}
 
 /// Economic metrics collector
 pub struct EconomicMetrics {

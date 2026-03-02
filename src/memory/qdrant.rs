@@ -573,6 +573,10 @@ impl Memory for QdrantMemory {
 
         matches!(resp, Ok(r) if r.status().is_success())
     }
+
+    async fn embed_one(&self, text: &str) -> anyhow::Result<Vec<f32>> {
+        self.embedder.embed_one(text).await
+    }
 }
 
 #[cfg(test)]

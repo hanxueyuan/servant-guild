@@ -92,6 +92,10 @@ pub trait Memory: Send + Sync {
 
     /// Health check
     async fn health_check(&self) -> bool;
+
+    async fn embed_one(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
+        anyhow::bail!("embedding is not supported by memory backend '{}'", self.name())
+    }
 }
 
 #[cfg(test)]

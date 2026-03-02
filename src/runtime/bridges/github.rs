@@ -286,9 +286,11 @@ impl GitHubBridgeImpl {
         )
     }
 
-    /// Get authentication headers
-    fn auth_headers(&self) -> Vec<(&str, &str)> {
-        vec![("Authorization", &format!("token {}", self.credentials.pat))]
+    fn clone_url(&self) -> String {
+        format!(
+            "https://github.com/{}/{}.git",
+            self.credentials.owner, self.credentials.repo
+        )
     }
 }
 
@@ -296,8 +298,8 @@ impl GitHubBridgeImpl {
 impl GitHubBridge for GitHubBridgeImpl {
     async fn clone_repo(&self, path: PathBuf) -> Result<()> {
         // Use git2 crate or system git command
-        let clone_url = self.credentials.clone_url.clone();
-        let full_path = path.join(self.credentials.repo);
+        let clone_url = self.clone_url();
+        let full_path = path.join(&self.credentials.repo);
 
         // Create parent directory if it doesn't exist
         if let Some(parent) = full_path.parent() {
@@ -321,7 +323,7 @@ impl GitHubBridge for GitHubBridgeImpl {
     }
 
     async fn pull(&self, path: PathBuf) -> Result<()> {
-        let repo_path = path.join(self.credentials.repo);
+        let repo_path = path.join(&self.credentials.repo);
 
         let output = std::process::Command::new("git")
             .args(["-C", repo_path.to_str().unwrap(), "pull"])
@@ -339,7 +341,7 @@ impl GitHubBridge for GitHubBridgeImpl {
     }
 
     async fn commit(&self, path: PathBuf, message: String, author: Option<String>) -> Result<()> {
-        let repo_path = path.join(self.credentials.repo);
+        let repo_path = path.join(&self.credentials.repo);
 
         // Configure author if provided
         if let Some(author_str) = author {
@@ -396,7 +398,7 @@ impl GitHubBridge for GitHubBridgeImpl {
     }
 
     async fn push(&self, path: PathBuf, branch: Option<String>) -> Result<()> {
-        let repo_path = path.join(self.credentials.repo);
+        let repo_path = path.join(&self.credentials.repo);
         let branch_ref = branch.unwrap_or_else(|| "HEAD".to_string());
 
         let output = std::process::Command::new("git")
@@ -421,7 +423,7 @@ impl GitHubBridge for GitHubBridgeImpl {
     }
 
     async fn create_branch(&self, path: PathBuf, branch_name: String) -> Result<()> {
-        let repo_path = path.join(self.credentials.repo);
+        let repo_path = path.join(&self.credentials.repo);
 
         let output = std::process::Command::new("git")
             .args([
@@ -449,7 +451,7 @@ impl GitHubBridge for GitHubBridgeImpl {
         // For now, return a mock implementation
         Ok(GitHubRepo {
             full_name: self.credentials.full_repo_name(),
-            clone_url: self.credentials.clone_url.clone(),
+            clone_url: self.clone_url(),
             default_branch: "main".to_string(),
             description: None,
             language: Some("Rust".to_string()),

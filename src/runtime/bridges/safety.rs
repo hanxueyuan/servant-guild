@@ -67,7 +67,7 @@ impl Host for HostState {
                     .cast_vote(
                         &proposal.id,
                         servant_id,
-                        crate::consensus::Vote::Approve,
+                        crate::consensus::Vote::Yes,
                         "requester approval".to_string(),
                     )
                     .map_err(|e| format!("Failed to cast vote: {e}"))?;

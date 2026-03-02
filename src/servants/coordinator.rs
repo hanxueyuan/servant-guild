@@ -11,8 +11,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use tokio::time::{sleep, Duration, Instant};
 
 use super::{
     Servant, ServantError, ServantId, ServantResult, ServantRole, ServantStatus, ServantTask,
@@ -344,16 +345,19 @@ impl Coordinator {
 
         coordinated.status = CoordinationStatus::Assigning;
 
+        let completed: HashSet<String> = coordinated
+            .sub_tasks
+            .iter()
+            .filter(|st| st.status == SubTaskStatus::Completed)
+            .map(|st| st.id.clone())
+            .collect();
+
         // Assign each sub-task to an appropriate servant
         for sub_task in &mut coordinated.sub_tasks {
             if sub_task.status == SubTaskStatus::Pending {
                 // Check dependencies are satisfied
-                let deps_satisfied = sub_task.dependencies.iter().all(|dep_id| {
-                    coordinated
-                        .sub_tasks
-                        .iter()
-                        .any(|st| st.id == *dep_id && st.status == SubTaskStatus::Completed)
-                });
+                let deps_satisfied =
+                    sub_task.dependencies.iter().all(|dep_id| completed.contains(dep_id));
 
                 if deps_satisfied {
                     // Assign to worker for now
@@ -379,30 +383,36 @@ impl Coordinator {
         task_id: &str,
     ) -> Result<serde_json::Value, ServantError> {
         let mut tasks = self.active_tasks.write();
-        let coordinated = tasks
-            .get_mut(task_id)
-            .ok_or_else(|| ServantError::InvalidTask(format!("Task {} not found", task_id)))?;
+        let (aggregated, completed) = {
+            let coordinated = tasks
+                .get_mut(task_id)
+                .ok_or_else(|| ServantError::InvalidTask(format!("Task {} not found", task_id)))?;
 
-        coordinated.status = CoordinationStatus::Aggregating;
+            coordinated.status = CoordinationStatus::Aggregating;
 
-        // Combine all sub-task results
-        let all_completed = coordinated
-            .sub_tasks
-            .iter()
-            .all(|st| st.status == SubTaskStatus::Completed || st.status == SubTaskStatus::Failed);
+            let all_completed = coordinated.sub_tasks.iter().all(|st| {
+                st.status == SubTaskStatus::Completed || st.status == SubTaskStatus::Failed
+            });
 
-        if all_completed {
+            if !all_completed {
+                coordinated.status = CoordinationStatus::Waiting;
+                return Ok(serde_json::json!({
+                    "status": "in_progress",
+                    "completed": coordinated.sub_tasks.iter().filter(|st| st.status == SubTaskStatus::Completed).count(),
+                    "total": coordinated.sub_tasks.len()
+                }));
+            }
+
             let aggregated = serde_json::json!({
                 "task_id": task_id,
-                "request": coordinated.request,
-                "sub_tasks": coordinated.sub_tasks,
-                "results": coordinated.results,
+                "request": coordinated.request.clone(),
+                "sub_tasks": coordinated.sub_tasks.clone(),
+                "results": coordinated.results.clone(),
                 "status": "completed"
             });
 
             coordinated.status = CoordinationStatus::Completed;
 
-            // Move to history
             let completed = CompletedTask {
                 id: task_id.to_string(),
                 request: coordinated.request.clone(),
@@ -414,17 +424,12 @@ impl Coordinator {
                 completed_at: Utc::now(),
             };
 
-            self.task_history.write().push(completed);
+            (aggregated, completed)
+        };
 
-            Ok(aggregated)
-        } else {
-            coordinated.status = CoordinationStatus::Waiting;
-            Ok(serde_json::json!({
-                "status": "in_progress",
-                "completed": coordinated.sub_tasks.iter().filter(|st| st.status == SubTaskStatus::Completed).count(),
-                "total": coordinated.sub_tasks.len()
-            }))
-        }
+        self.task_history.write().push(completed);
+        tasks.remove(task_id);
+        Ok(aggregated)
     }
 
     /// Record a sub-task result
@@ -527,8 +532,39 @@ impl Servant for Coordinator {
 
     async fn stop(&mut self) -> Result<(), ServantError> {
         *self.status.write() = ServantStatus::Stopping;
-        // Wait for active tasks to complete
-        // TODO: Implement graceful shutdown
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if self.active_tasks.read().is_empty() {
+                break;
+            }
+            if Instant::now() >= deadline {
+                let mut tasks = self.active_tasks.write();
+                for (id, task) in tasks.drain() {
+                    let request = task.request;
+                    let sub_task_count = task.sub_tasks.len();
+                    let aggregated = serde_json::json!({
+                        "task_id": id,
+                        "request": request.clone(),
+                        "sub_tasks": task.sub_tasks,
+                        "results": task.results,
+                        "status": "stopped"
+                    });
+
+                    self.task_history.write().push(CompletedTask {
+                        id,
+                        request,
+                        result: aggregated,
+                        duration_ms: (Utc::now() - task.started_at)
+                            .num_milliseconds()
+                            .max(0) as u64,
+                        sub_task_count,
+                        completed_at: Utc::now(),
+                    });
+                }
+                break;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
         *self.status.write() = ServantStatus::Paused;
         Ok(())
     }

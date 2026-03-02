@@ -15,6 +15,8 @@ pub mod network;
 pub mod secrets;
 pub mod syscall_anomaly;
 pub mod validation;
+pub mod otp;
+pub mod estop;
 
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +29,22 @@ pub use network::{NetworkIsolation, NetworkPolicy};
 pub use secrets::{Secret, SecretStore, SecretsManager};
 pub use syscall_anomaly::SyscallAnomalyDetector;
 pub use validation::{InputValidator, ValidationError};
+pub use otp::OtpValidator;
+pub use estop::{EstopLevel, EstopManager, EstopState, ResumeSelector};
+
+pub fn redact(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let len = trimmed.chars().count();
+    if len <= 4 {
+        return "****".to_string();
+    }
+    let prefix: String = trimmed.chars().take(2).collect();
+    let suffix: String = trimmed.chars().rev().take(2).collect::<String>().chars().rev().collect();
+    format!("{prefix}***{suffix}")
+}
 
 /// Security configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

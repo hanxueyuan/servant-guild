@@ -280,7 +280,7 @@ impl BuildSandbox {
         let mut child = cmd.spawn().context("Failed to spawn process")?;
 
         // Store PID
-        *self.pid.write().await = Some(child.id());
+        *self.pid.write().await = child.id();
 
         // Set up timeout
         let timeout_duration = std::time::Duration::from_secs(self.config.max_wall_time_secs);
@@ -377,7 +377,7 @@ impl BuildSandbox {
         let mut child = cmd.spawn().context("Failed to spawn docker")?;
 
         // Store PID
-        *self.pid.write().await = Some(child.id());
+        *self.pid.write().await = child.id();
 
         // Set up timeout
         let timeout_duration = std::time::Duration::from_secs(self.config.max_wall_time_secs);
@@ -389,6 +389,7 @@ impl BuildSandbox {
 
                 let stdout = Self::read_stream(child.stdout.take()).await?;
                 let stderr = Self::read_stream(child.stderr.take()).await?;
+                let oom_killed = stderr.contains("OOMKilled");
 
                 Ok(InternalResult {
                     success: status.success(),
@@ -396,7 +397,7 @@ impl BuildSandbox {
                     stdout,
                     stderr,
                     timed_out: false,
-                    oom_killed: stderr.contains("OOMKilled"),
+                    oom_killed,
                 })
             }
             _ = timeout => {
@@ -416,7 +417,10 @@ impl BuildSandbox {
     }
 
     /// Read from an async stream
-    async fn read_stream(stream: Option<tokio::process::ChildStdout>) -> Result<String> {
+    async fn read_stream<R>(stream: Option<R>) -> Result<String>
+    where
+        R: tokio::io::AsyncRead + Unpin,
+    {
         let mut output = String::new();
 
         if let Some(stream) = stream {

@@ -53,8 +53,11 @@ impl Host for HostState {
         })
     }
 
-    async fn embed(&mut self, _req: EmbeddingRequest) -> Result<Vec<f32>, String> {
-        // TODO: Add embedding support to Provider trait
-        Ok(vec![0.0; 1536]) 
+    async fn embed(&mut self, req: EmbeddingRequest) -> Result<Vec<f32>, String> {
+        let mem = self
+            .memory
+            .as_ref()
+            .ok_or_else(|| "memory backend is not configured".to_string())?;
+        mem.embed_one(&req.input).await.map_err(|e| e.to_string())
     }
 }

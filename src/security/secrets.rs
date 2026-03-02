@@ -3,6 +3,7 @@
 //! Secure storage and management of secrets (API keys, tokens, passwords)
 
 use crate::security::*;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,6 +16,7 @@ pub struct SecretsManager {
 }
 
 /// Secret store - file-backed secret storage with encryption support
+#[derive(Debug, Clone)]
 pub struct SecretStore {
     path: std::path::PathBuf,
     encrypted: bool,
@@ -48,20 +50,33 @@ impl SecretStore {
     }
 
     /// Encrypt a value
-    pub fn encrypt(&self, value: &str) -> String {
-        if self.encrypted {
-            format!("enc:{}", value)
+    pub fn encrypt(&self, value: &str) -> Result<String> {
+        Ok(if self.encrypted {
+            format!("enc:{value}")
         } else {
             value.to_string()
-        }
+        })
     }
 
     /// Decrypt a value
-    pub fn decrypt(&self, value: &str) -> String {
-        if value.starts_with("enc:") {
+    pub fn decrypt(&self, value: &str) -> Result<String> {
+        Ok(if value.starts_with("enc:") {
             value[4..].to_string()
         } else {
             value.to_string()
+        })
+    }
+
+    pub fn decrypt_and_migrate(&self, value: &str) -> Result<(String, Option<String>)> {
+        if Self::is_encrypted(value) {
+            return Ok((self.decrypt(value)?, None));
+        }
+
+        if self.encrypted {
+            let migrated = self.encrypt(value)?;
+            Ok((value.to_string(), Some(migrated)))
+        } else {
+            Ok((value.to_string(), None))
         }
     }
 

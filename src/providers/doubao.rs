@@ -11,10 +11,9 @@
 //! - Token usage tracking
 
 use crate::providers::traits::{
-    ChatMessage, ChatRequest as ProviderChatRequest, ChatResponse as ProviderChatResponse,
-    Provider, ProviderCapabilities, TokenUsage, ToolCall as ProviderToolCall,
+    ChatMessage, ChatResponse as ProviderChatResponse, Provider, ProviderCapabilities, TokenUsage,
+    ToolCall as ProviderToolCall,
 };
-use crate::tools::ToolSpec;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -46,6 +45,14 @@ impl DoubaoProvider {
             max_tokens_override: None,
             client,
         }
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub fn credential(&self) -> Option<&str> {
+        self.credential.as_deref()
     }
 
     /// Set maximum tokens for responses
@@ -209,7 +216,6 @@ impl Provider for DoubaoProvider {
         ProviderCapabilities {
             native_tool_calling: true,
             vision: false,
-            streaming: false,
         }
     }
 
@@ -341,28 +347,28 @@ impl Provider for DoubaoProvider {
 
     async fn chat_with_tools(
         &self,
-        request: ProviderChatRequest<'_>,
+        messages: &[ChatMessage],
+        tools: &[serde_json::Value],
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<ProviderChatResponse> {
-        // Convert tools to Doubao format
-        let tools = request.tools.map(|tools| {
-            tools
-                .iter()
-                .map(|t| DoubaoToolSpec {
-                    kind: "function".to_string(),
-                    function: DoubaoToolFunctionSpec {
-                        name: t.name.clone(),
-                        description: t.description.clone(),
-                        parameters: t.parameters.clone(),
-                    },
-                })
-                .collect()
-        });
+        let tools: Option<Vec<DoubaoToolSpec>> = if tools.is_empty() {
+            None
+        } else {
+            Some(
+                tools
+                    .iter()
+                    .cloned()
+                    .map(|tool| {
+                        serde_json::from_value(tool)
+                            .map_err(|e| anyhow::anyhow!("Invalid Doubao tool specification: {e}"))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?,
+            )
+        };
 
         // Convert messages to Doubao format
-        let messages: Vec<DoubaoMessage> = request
-            .messages
+        let messages: Vec<DoubaoMessage> = messages
             .iter()
             .map(|m| DoubaoMessage {
                 role: m.role.clone(),
@@ -461,6 +467,7 @@ impl Provider for DoubaoProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::ToolSpec;
 
     #[test]
     fn test_doubao_provider_creation() {
@@ -497,7 +504,6 @@ mod tests {
         let caps = provider.capabilities();
         assert!(caps.native_tool_calling);
         assert!(!caps.vision);
-        assert!(!caps.streaming);
     }
 
     #[test]

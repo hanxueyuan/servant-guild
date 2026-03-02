@@ -9,7 +9,7 @@ pub mod policy;
 #[cfg(feature = "rollback-recovery")]
 pub mod rollback;
 pub mod snapshot;
-#[cfg(feature = "rollback-recovery")]
+#[cfg(all(feature = "rollback-recovery", feature = "phase3-orchestration"))]
 pub mod state_recovery;
 
 pub use audit::{AuditEvent, AuditEventType, AuditLogger};
@@ -24,6 +24,7 @@ pub use rollback::{
     RollbackResult, SnapshotEntry, SnapshotEntryType, SnapshotMetadata, SnapshotType,
 };
 pub use snapshot::Snapshot;
+#[cfg(all(feature = "rollback-recovery", feature = "phase3-orchestration"))]
 pub use state_recovery::{
     RecoveryConfig, RecoveryManager, RecoveryPhase, RecoveryRecord, RecoveryResult, RecoveryStats,
     RecoveryStatus, SnapshotManager, StateChange,

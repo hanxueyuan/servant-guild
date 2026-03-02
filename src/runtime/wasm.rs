@@ -19,6 +19,7 @@ use crate::safety::audit::AuditLogger;
 use crate::safety::TransactionManager;
 use crate::tools::traits::Tool;
 use anyhow::{bail, Context, Result};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -63,7 +64,7 @@ pub struct HostStateDeps {
     pub audit_logger: Arc<AuditLogger>,
     pub consensus_engine: Option<Arc<ConsensusEngine>>,
     pub memory: Option<Arc<dyn Memory>>,
-    pub rollback_manager: Option<Arc<TransactionManager>>,
+    pub rollback_manager: Option<Arc<Mutex<TransactionManager>>>,
 }
 
 impl WasmRuntime {

@@ -21,13 +21,12 @@ use std::sync::Arc;
 async fn test_multi_agent_task_execution() {
     // Initialize Guild
     let config = GuildConfig::default();
-    let guild = Guild::new(config).await.expect("Failed to create Guild");
-
-    // Start all servants
-    guild.start_all().await.expect("Failed to start servants");
+    let guild = Guild::with_config(config)
+        .await
+        .expect("Failed to create Guild");
 
     // Verify all servants are ready
-    let statuses = guild.get_all_statuses().await;
+    let statuses = guild.servant_statuses();
     assert!(statuses.len() == 5, "All 5 servants should be present");
 
     for (role, status) in statuses {
@@ -73,7 +72,7 @@ async fn test_consensus_proposal_workflow() {
         .cast_vote(
             &proposal.id,
             "servant_0".to_string(),
-            Vote::Approve,
+            Vote::Yes,
             "Good idea".to_string(),
         )
         .expect("Failed to cast vote");
@@ -81,7 +80,7 @@ async fn test_consensus_proposal_workflow() {
         .cast_vote(
             &proposal.id,
             "servant_1".to_string(),
-            Vote::Approve,
+            Vote::Yes,
             "Agreed".to_string(),
         )
         .expect("Failed to cast vote");
@@ -89,7 +88,7 @@ async fn test_consensus_proposal_workflow() {
         .cast_vote(
             &proposal.id,
             "servant_2".to_string(),
-            Vote::Approve,
+            Vote::Yes,
             "Support".to_string(),
         )
         .expect("Failed to cast vote");
@@ -97,7 +96,7 @@ async fn test_consensus_proposal_workflow() {
         .cast_vote(
             &proposal.id,
             "servant_3".to_string(),
-            Vote::Reject,
+            Vote::No,
             "Concerned".to_string(),
         )
         .expect("Failed to cast vote");
@@ -105,7 +104,7 @@ async fn test_consensus_proposal_workflow() {
         .cast_vote(
             &proposal.id,
             "servant_4".to_string(),
-            Vote::Reject,
+            Vote::No,
             "Need more info".to_string(),
         )
         .expect("Failed to cast vote");
@@ -203,8 +202,9 @@ async fn test_full_workflow_integration() {
     // Step 1: Initialize Guild
     println!("Step 1: Initializing Guild...");
     let config = GuildConfig::default();
-    let guild = Guild::new(config).await.expect("Failed to create Guild");
-    guild.start_all().await.expect("Failed to start servants");
+    let guild = Guild::with_config(config)
+        .await
+        .expect("Failed to create Guild");
     println!("✓ Guild initialized with 5 servants\n");
 
     // Step 2: Owner sends task to Coordinator
@@ -259,10 +259,10 @@ async fn test_doubao_provider_creation() {
     );
 
     assert_eq!(
-        provider.base_url,
+        provider.base_url(),
         "https://ark.cn-beijing.volces.com/api/v3"
     );
-    assert_eq!(provider.credential, Some("test-api-key".to_string()));
+    assert_eq!(provider.credential(), Some("test-api-key"));
 
     println!("✓ Doubao provider created successfully");
 }
@@ -280,11 +280,10 @@ async fn test_doubao_capabilities() {
     let caps = provider.capabilities();
     assert!(caps.native_tool_calling);
     assert!(!caps.vision);
-    assert!(!caps.streaming);
 
     println!(
-        "✓ Doubao capabilities verified: native_tool_calling={}, vision={}, streaming={}",
-        caps.native_tool_calling, caps.vision, caps.streaming
+        "✓ Doubao capabilities verified: native_tool_calling={}, vision={}",
+        caps.native_tool_calling, caps.vision
     );
 }
 
@@ -401,8 +400,9 @@ async fn test_full_workflow_with_doubao_llm() {
     // Step 1: Initialize Guild with Doubao LLM
     println!("Step 1: Initializing Guild with Doubao LLM...");
     let config = GuildConfig::default();
-    let guild = Guild::new(config).await.expect("Failed to create Guild");
-    guild.start_all().await.expect("Failed to start servants");
+    let _guild = Guild::with_config(config)
+        .await
+        .expect("Failed to create Guild");
     println!("✓ Guild initialized with 5 servants + Doubao LLM\n");
 
     // Step 2: Complex task requiring LLM intelligence

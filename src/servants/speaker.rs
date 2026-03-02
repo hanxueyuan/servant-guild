@@ -24,7 +24,7 @@ use crate::consensus::{
 };
 
 /// Notification channel for distributing messages
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NotificationChannel {
     /// Console output
     Console,
@@ -81,7 +81,7 @@ pub struct GuildMessage {
 }
 
 /// Types of guild messages
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum MessageType {
     /// Normal communication
     Normal,
@@ -270,6 +270,8 @@ impl Speaker {
             message_type: MessageType::Proposal,
             timestamp: Utc::now(),
             important: true,
+            channels: Vec::new(),
+            recipients: None,
         })
         .await;
 
@@ -300,6 +302,8 @@ impl Speaker {
             message_type: MessageType::Vote,
             timestamp: Utc::now(),
             important: true,
+            channels: Vec::new(),
+            recipients: None,
         })
         .await;
 
@@ -339,6 +343,8 @@ impl Speaker {
             message_type: MessageType::Result,
             timestamp: Utc::now(),
             important: true,
+            channels: Vec::new(),
+            recipients: None,
         })
         .await;
 
@@ -386,6 +392,8 @@ impl Speaker {
             message_type: MessageType::Normal,
             timestamp: Utc::now(),
             important: false,
+            channels: Vec::new(),
+            recipients: None,
         };
 
         discussion.messages.push(message.clone());
@@ -600,6 +608,7 @@ impl Speaker {
         servant_id: String,
         description: String,
     ) {
+        let recipient_id = servant_id.clone();
         self.broadcast(GuildMessage {
             id: uuid::Uuid::new_v4().to_string(),
             sender: self.id.as_str().to_string(),
@@ -612,9 +621,9 @@ impl Speaker {
             important: true,
             channels: vec![
                 NotificationChannel::Console,
-                NotificationChannel::Servant(servant_id),
+                NotificationChannel::Servant(recipient_id.clone()),
             ],
-            recipients: Some(vec![servant_id]),
+            recipients: Some(vec![recipient_id]),
         })
         .await;
     }
@@ -665,6 +674,10 @@ impl Speaker {
         .await;
     }
 
+    pub fn get_messages(&self) -> Vec<GuildMessage> {
+        self.messages.read().clone()
+    }
+
     /// Get message history filtered by type
     pub fn get_messages_by_type(&self, message_type: MessageType) -> Vec<GuildMessage> {
         self.messages
@@ -684,7 +697,7 @@ impl Speaker {
                 m.sender == servant_id
                     || m.recipients
                         .as_ref()
-                        .map_or(false, |r| r.contains(servant_id))
+                        .map_or(false, |r| r.iter().any(|id| id == servant_id))
             })
             .cloned()
             .collect()

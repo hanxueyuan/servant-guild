@@ -91,7 +91,8 @@ impl IpcDb {
     ///
     /// `workspace_dir` is hashed to derive a stable, code-enforced `agent_id`.
     pub fn open(workspace_dir: &std::path::Path, config: &AgentsIpcConfig) -> Result<Self, String> {
-        let db_path = shellexpand::tilde(&config.db_path).into_owned();
+        let db_path_raw = config.db_path.to_string_lossy();
+        let db_path = shellexpand::tilde(&db_path_raw).into_owned();
 
         // Ensure parent directory exists
         if let Some(parent) = std::path::Path::new(&db_path).parent() {
@@ -855,7 +856,7 @@ mod tests {
 
         let config = AgentsIpcConfig {
             enabled: true,
-            db_path: db_path.to_str().unwrap().to_string(),
+            db_path: db_path.clone(),
             staleness_secs: 300,
         };
 

@@ -310,6 +310,47 @@ impl Default for AgentsIpcConfig {
     }
 }
 
+fn default_goal_loop_interval_minutes() -> u64 {
+    10
+}
+
+fn default_goal_loop_step_timeout_secs() -> u64 {
+    120
+}
+
+fn default_goal_loop_max_steps_per_cycle() -> u32 {
+    3
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GoalLoopConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_goal_loop_interval_minutes")]
+    pub interval_minutes: u64,
+    #[serde(default = "default_goal_loop_step_timeout_secs")]
+    pub step_timeout_secs: u64,
+    #[serde(default = "default_goal_loop_max_steps_per_cycle")]
+    pub max_steps_per_cycle: u32,
+    #[serde(default)]
+    pub channel: Option<String>,
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
+impl Default for GoalLoopConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_minutes: default_goal_loop_interval_minutes(),
+            step_timeout_secs: default_goal_loop_step_timeout_secs(),
+            max_steps_per_cycle: default_goal_loop_max_steps_per_cycle(),
+            channel: None,
+            target: None,
+        }
+    }
+}
+
 // ── Hardware Config (wizard-driven) ─────────────────────────────
 
 /// Hardware transport mode.
@@ -3778,6 +3819,7 @@ impl Default for Config {
             cost: CostConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
+            agents_ipc: AgentsIpcConfig::default(),
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
@@ -5311,6 +5353,7 @@ default_temperature = 0.7
             cost: CostConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
+            agents_ipc: AgentsIpcConfig::default(),
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
@@ -5493,6 +5536,7 @@ tool_dispatcher = "xml"
             cost: CostConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
+            agents_ipc: AgentsIpcConfig::default(),
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),

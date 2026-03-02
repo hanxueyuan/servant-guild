@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
@@ -141,6 +142,17 @@ pub struct HotSwapManager {
     wasm_runtime: Arc<WasmRuntime>,
     /// History of loaded versions
     version_history: Arc<RwLock<HashMap<String, Vec<ModuleVersion>>>>,
+    active_requests: Arc<AtomicU64>,
+}
+
+pub struct ActiveRequestGuard {
+    counter: Arc<AtomicU64>,
+}
+
+impl Drop for ActiveRequestGuard {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 impl HotSwapManager {
@@ -152,6 +164,14 @@ impl HotSwapManager {
             active_versions: Arc::new(RwLock::new(HashMap::new())),
             wasm_runtime: Arc::new(wasm_runtime),
             version_history: Arc::new(RwLock::new(HashMap::new())),
+            active_requests: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub fn track_request(&self) -> ActiveRequestGuard {
+        self.active_requests.fetch_add(1, Ordering::Relaxed);
+        ActiveRequestGuard {
+            counter: self.active_requests.clone(),
         }
     }
 
@@ -279,7 +299,7 @@ impl HotSwapManager {
             previous_version: current_version,
             new_version,
             duration_ms,
-            active_requests: 0, // TODO: Track active requests
+            active_requests: self.active_requests.load(Ordering::Relaxed),
             warnings: Vec::new(),
             started_at: start_time,
             ended_at: end_time,

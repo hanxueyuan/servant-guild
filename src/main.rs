@@ -37,8 +37,10 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use dialoguer::{Input, Password};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
+use std::sync::Arc;
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
+use crate::security::SecurityPolicy;
 
 fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
     let t: f64 = s.parse().map_err(|e| format!("{e}"))?;
@@ -789,7 +791,7 @@ async fn main() -> Result<()> {
     config.apply_env_overrides();
 
     // Initialize Safety Core (Prudent Agency)
-    let audit_logger = std::sync::Arc::new(security::audit::AuditLogger::new(
+    let audit_logger = Arc::new(safety::audit::AuditLogger::new(
         config.security.audit.clone(),
         config.workspace_dir.clone(),
     )?);
@@ -826,21 +828,6 @@ async fn main() -> Result<()> {
             let task_id = task_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
             info!("🚀 Launching Servant: {} (Task: {})", name, task_id);
-
-            // TODO: Inject AuditLogger into Runtime once WasmRuntime supports it
-            // For now, we just log the attempt
-            audit_logger.log(
-                &security::audit::AuditEvent::new(
-                    security::audit::AuditEventType::CommandExecution,
-                )
-                .with_actor("host".to_string(), None, None)
-                .with_action(
-                    format!("launch_servant:{}", name),
-                    "medium".to_string(),
-                    true,
-                    true,
-                ),
-            )?;
 
             let security_policy = Arc::new(SecurityPolicy::from_config(
                 &config.autonomy,
@@ -936,7 +923,9 @@ async fn main() -> Result<()> {
                 audit_logger: servant_audit_logger,
                 consensus_engine: Some(consensus_engine),
                 memory: Some(mem),
-                rollback_manager: Some(Arc::new(safety::TransactionManager::new())),
+                rollback_manager: Some(Arc::new(parking_lot::Mutex::new(
+                    safety::TransactionManager::new(),
+                ))),
             };
 
             match servant_runtime

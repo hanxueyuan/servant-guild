@@ -42,12 +42,14 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::time::{sleep, Duration, Instant};
 
 use crate::consensus::{ConsensusConfig, ConsensusEngine, Constitution, DecisionType, Vote};
-use crate::safety::{AuditLogger, SnapshotManager, TransactionManager};
+use crate::safety::{AuditLogger, TransactionManager};
 use crate::servants::{
     Contractor, Coordinator, Servant, ServantError, ServantId, ServantRole, ServantStatus, Speaker,
     Warden, Worker,
@@ -55,10 +57,11 @@ use crate::servants::{
 
 // Type aliases for consistency
 type AuditLog = AuditLogger;
-type RollbackManager = TransactionManager;
+type RollbackManager = Mutex<TransactionManager>;
 
 /// The Guild - coordinates all servants
 pub struct Guild {
+    config: GuildConfig,
     /// Guild ID
     id: GuildId,
     /// Consensus engine
@@ -125,6 +128,9 @@ pub struct GuildConfig {
     pub enable_rollback: bool,
     /// Maximum concurrent tasks
     pub max_concurrent_tasks: usize,
+    pub audit_dir: PathBuf,
+    pub snapshot_dir: PathBuf,
+    pub audit_config: crate::config::AuditConfig,
 }
 
 impl Default for GuildConfig {
@@ -134,6 +140,9 @@ impl Default for GuildConfig {
             enable_audit: true,
             enable_rollback: true,
             max_concurrent_tasks: 10,
+            audit_dir: PathBuf::from(".zeroclaw"),
+            snapshot_dir: PathBuf::from(".zeroclaw/snapshots"),
+            audit_config: crate::config::AuditConfig::default(),
         }
     }
 }
@@ -188,23 +197,27 @@ impl Guild {
 
         // Setup audit log and rollback manager
         let audit_log = if config.enable_audit {
-            let zeroclaw_dir = std::path::PathBuf::from("."); // TODO: Get from config
-            let audit_config = crate::config::AuditConfig::default();
-            Some(Arc::new(AuditLog::new(audit_config, zeroclaw_dir)?))
+            std::fs::create_dir_all(&config.audit_dir)
+                .map_err(|e| GuildError::Internal(e.to_string()))?;
+            Some(Arc::new(AuditLog::new(
+                config.audit_config.clone(),
+                config.audit_dir.clone(),
+            )?))
         } else {
             None
         };
 
         let rollback_manager = if config.enable_rollback {
-            let snapshot_path = std::path::PathBuf::from("./snapshots"); // TODO: Get from config
-            let snapshot_manager = Arc::new(SnapshotManager::new(snapshot_path)?);
-            Some(Arc::new(TransactionManager::new(snapshot_manager)))
+            std::fs::create_dir_all(&config.snapshot_dir)
+                .map_err(|e| GuildError::Internal(e.to_string()))?;
+            Some(Arc::new(Mutex::new(TransactionManager::new())))
         } else {
             None
         };
 
         Ok(Self {
             id: GuildId::default(),
+            config,
             consensus,
             coordinator: RwLock::new(coordinator),
             worker: RwLock::new(worker),
@@ -315,21 +328,40 @@ impl Guild {
                     .await
                     .map_err(|e| GuildError::ServantError(e))?;
 
-                // Wait for votes (simplified - in reality would be async)
-                // For now, return pending
-                *self.status.write() = GuildStatus::Ready;
+                let timeout_secs = self.config.consensus.voting_timeout_secs.max(2);
+                let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+                loop {
+                    let tally = self
+                        .consensus
+                        .evaluate_proposal(&proposal.id)
+                        .map_err(|e| GuildError::ConsensusError(e.to_string()))?;
+                    match tally.result {
+                        crate::consensus::ConsensusResult::Passed => break,
+                        crate::consensus::ConsensusResult::Rejected
+                        | crate::consensus::ConsensusResult::Expired
+                        | crate::consensus::ConsensusResult::Vetoed => {
+                            *self.status.write() = GuildStatus::Ready;
+                            return Err(GuildError::ConsensusError(format!("{:?}", tally.result)));
+                        }
+                        crate::consensus::ConsensusResult::Pending => {}
+                    }
 
-                return Ok(GuildResult {
-                    operation_id,
-                    success: true,
-                    data: serde_json::json!({
-                        "status": "pending_approval",
-                        "proposal_id": proposal.id,
-                        "message": "Request requires guild approval"
-                    }),
-                    warnings: vec!["High-risk operation requires approval".to_string()],
-                    duration_ms: start.elapsed().as_millis() as u64,
-                });
+                    if Instant::now() >= deadline {
+                        *self.status.write() = GuildStatus::Ready;
+                        return Ok(GuildResult {
+                            operation_id,
+                            success: true,
+                            data: serde_json::json!({
+                                "status": "pending_approval",
+                                "proposal_id": proposal.id,
+                                "message": "Request requires guild approval"
+                            }),
+                            warnings: vec!["High-risk operation requires approval".to_string()],
+                            duration_ms: start.elapsed().as_millis() as u64,
+                        });
+                    }
+                    sleep(Duration::from_millis(200)).await;
+                }
             }
         }
 
@@ -380,17 +412,11 @@ impl Guild {
             return Err(GuildError::SecurityDenied(security_check.reason));
         }
 
-        // Create snapshot for risky operations
-        let snapshot_id = if security_check.risk_level > 5 {
+        if security_check.risk_level > 5 {
             if let Some(manager) = &self.rollback_manager {
-                let path = std::path::Path::new(tool_name);
-                Some(manager.create_snapshot(path).ok())
-            } else {
-                None
+                manager.lock().begin()?;
             }
-        } else {
-            None
-        };
+        }
 
         // Execute the tool
         let result = self
@@ -401,16 +427,21 @@ impl Guild {
             .map_err(|e| GuildError::ServantError(e))?;
 
         if !result.success {
-            // Rollback if we created a snapshot
-            if let Some(Some(_id)) = snapshot_id {
+            if security_check.risk_level > 5 {
                 if let Some(manager) = &self.rollback_manager {
-                    manager.rollback().ok();
+                    manager.lock().rollback().ok();
                 }
             }
 
             return Err(GuildError::ToolExecutionFailed(
                 result.error.unwrap_or_else(|| "Unknown error".to_string()),
             ));
+        }
+
+        if security_check.risk_level > 5 {
+            if let Some(manager) = &self.rollback_manager {
+                manager.lock().commit().ok();
+            }
         }
 
         Ok(result.output)

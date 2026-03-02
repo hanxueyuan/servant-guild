@@ -285,3 +285,12 @@ pub fn all_tools_with_runtime(
         .map(|inner| Box::new(ArcTool { inner }) as Box<dyn Tool>)
         .collect()
 }
+
+pub fn default_tools(security: Arc<SecurityPolicy>) -> Vec<Box<dyn Tool>> {
+    let runtime: Arc<dyn RuntimeAdapter> = Arc::new(crate::runtime::NativeRuntime::new());
+    vec![
+        Box::new(file_read::FileReadTool::new(Arc::clone(&security))),
+        Box::new(file_write::FileWriteTool::new(Arc::clone(&security))),
+        Box::new(shell::ShellTool::new(Arc::clone(&security), runtime)),
+    ]
+}

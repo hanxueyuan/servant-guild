@@ -121,13 +121,15 @@ impl BudgetManager {
         }
 
         // Update counters
+        let current_hour = state.current_hour;
+        let current_day = state.current_day.clone();
         *state
             .hourly_spending
-            .entry(state.current_hour)
+            .entry(current_hour)
             .or_insert(0.0) += amount;
         *state
             .daily_spending
-            .entry(state.current_day.clone())
+            .entry(current_day)
             .or_insert(0.0) += amount;
         *state.agent_spending.entry(agent.to_string()).or_insert(0.0) += amount;
 
