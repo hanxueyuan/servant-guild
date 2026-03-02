@@ -55,7 +55,7 @@ pub enum UpdateType {
 }
 
 /// Behavior change specification
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BehaviorChange {
     /// Behavior name
     pub name: String,
@@ -100,7 +100,7 @@ pub enum RiskLevel {
 }
 
 /// Policy change specification
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PolicyChange {
     /// Policy rule name
     pub rule: String,
@@ -232,7 +232,7 @@ impl UpdateProposal {
             title,
             description,
             proposer.clone(),
-            DecisionType::UpdateDeployment,
+            DecisionType::CodeChange,
         );
 
         Self {
@@ -299,8 +299,8 @@ impl UpdateProposal {
         score += match &self.update_type {
             UpdateType::ModuleUpdate { .. } => 20,
             UpdateType::ConfigChange { .. } => 30,
-            UpdateType::BehaviorEvolution { changes } => {
-                let max_impact = changes
+            UpdateType::BehaviorEvolution { behavior_changes, .. } => {
+                let max_impact = behavior_changes
                     .iter()
                     .map(|c| match c.impact {
                         ImpactLevel::Low => 10,
@@ -387,27 +387,30 @@ impl UpdateProposal {
             31..=50 => 0.75,
             51..=70 => 1.0,
             71..=85 => 1.25,
-            86..=100 => 1.5,
+            _ => 1.5,
         }
     }
 
     /// Convert to consensus proposal
     pub fn into_proposal(self) -> Proposal {
         let payload = serde_json::to_value(&self.update_type).ok();
+        let tags = self.generate_tags();
+        let priority = self.calculate_priority();
+        let base = self.base;
 
         Proposal {
-            id: self.base.id,
-            title: self.base.title,
-            description: self.base.description,
-            proposer: self.base.proposer,
-            decision_type: DecisionType::UpdateDeployment,
+            id: base.id,
+            title: base.title,
+            description: base.description,
+            proposer: base.proposer,
+            decision_type: DecisionType::CodeChange,
             payload,
-            created_at: self.base.created_at,
-            expires_at: self.base.expires_at,
-            status: self.base.status,
-            votes: self.base.votes,
-            tags: self.generate_tags(),
-            priority: self.calculate_priority(),
+            created_at: base.created_at,
+            expires_at: base.expires_at,
+            status: base.status,
+            votes: base.votes,
+            tags,
+            priority,
         }
     }
 

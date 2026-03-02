@@ -46,7 +46,7 @@ pub struct EgressRule {
 }
 
 /// Network protocol
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Protocol {
     TCP,
     UDP,

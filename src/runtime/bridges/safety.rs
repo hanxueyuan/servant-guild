@@ -19,9 +19,10 @@ impl Host for HostState {
         };
 
         let event = AuditEvent::new(AuditEventType::ServantAction)
-            .with_actor("servant_guild".to_string(), None, None) // TODO: Get Servant ID
+            .with_agent(self.servant_id.clone())
             .with_resource_action(action, target_resource)
-            .with_result(true, None, 0, Some(outcome)); // TODO: Add duration
+            .with_result(true, None, 0, Some(outcome))
+            .finalize();
 
         // Log to disk via AuditLogger
         if let Err(e) = self.audit_logger.log(&event) {
@@ -38,23 +39,49 @@ impl Host for HostState {
         let is_high_risk = self.is_high_risk_action(&action, &target_resource);
 
         if is_high_risk {
-            // For high-risk actions, require consensus approval
-            println!("[SAFETY] HIGH RISK: {} on {}", action, target_resource);
-            println!("[SAFETY] Requesting consensus approval...");
+            if let Some(ref consensus_engine) = self.consensus_engine {
+                let servant_id = self.servant_id.clone();
+                consensus_engine.register_servant(servant_id.clone());
 
-            // TODO: Trigger consensus vote
-            // For now, block high-risk actions in production mode
-            #[cfg(not(debug_assertions))]
-            {
-                return Ok(false); // Deny in production
+                let decision_type = if action.to_lowercase().contains("secret")
+                    || target_resource.to_lowercase().contains("secret")
+                    || target_resource.to_lowercase().contains("credential")
+                    || target_resource.to_lowercase().contains("key")
+                {
+                    crate::consensus::DecisionType::SecurityChange
+                } else {
+                    crate::consensus::DecisionType::SystemUpdate
+                };
+
+                let proposal = consensus_engine
+                    .create_proposal(
+                        format!("Permission: {action}"),
+                        format!("Target: {target_resource}"),
+                        servant_id.clone(),
+                        decision_type,
+                        None,
+                    )
+                    .map_err(|e| format!("Failed to create proposal: {e}"))?;
+
+                consensus_engine
+                    .cast_vote(
+                        &proposal.id,
+                        servant_id,
+                        crate::consensus::Vote::Yes,
+                        "requester approval".to_string(),
+                    )
+                    .map_err(|e| format!("Failed to cast vote: {e}"))?;
+
+                let tally = consensus_engine
+                    .evaluate_proposal(&proposal.id)
+                    .map_err(|e| format!("Failed to evaluate proposal: {e}"))?;
+
+                Ok(matches!(tally.result, crate::consensus::ConsensusResult::Passed))
+            } else {
+                Ok(false)
             }
-
-            // In debug mode, approve but warn
-            println!("[SAFETY] DEBUG MODE: Approving high-risk action");
-            Ok(true)
         } else {
             // Low-risk actions are auto-approved
-            println!("[SAFETY] LOW RISK: {} on {} - Approved", action, target_resource);
             Ok(true)
         }
     }

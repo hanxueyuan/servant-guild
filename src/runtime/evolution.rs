@@ -9,7 +9,7 @@ use crate::runtime::bridges::github::{GitHubBridge, GitHubCredentials};
 use crate::runtime::hot_swap::{HotSwap, ModuleVersion, SwapStrategy};
 use crate::runtime::rollback::{RollbackManager, RollbackPoint, RollbackPointType};
 use crate::runtime::state::HostState;
-use crate::services::llm::LLMProvider;
+use crate::providers::LLMProvider;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -174,7 +174,7 @@ pub struct EvolutionResult {
     /// Warnings
     pub warnings: Vec<String>,
     /// Errors
-    pub<String>,
+    pub errors: Vec<String>,
     /// Started at
     pub started_at: DateTime<Utc>,
     /// Ended at

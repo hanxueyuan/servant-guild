@@ -1,8 +1,7 @@
 use crate::runtime::state::HostState;
 use crate::runtime::bindings::zeroclaw::host::memory::{Host, MemoryResult};
-use crate::memory::{Memory, MemoryCategory, MemoryEntry};
+use crate::memory::MemoryCategory;
 use wasmtime::Result;
-use chrono::Utc;
 
 #[async_trait::async_trait]
 impl Host for HostState {
@@ -60,10 +59,16 @@ impl Host for HostState {
             let results = entries
                 .into_iter()
                 .map(|entry| MemoryResult {
-                    key: entry.key,
-                    value: entry.content,
-                    score: entry.score.unwrap_or(0.0),
-                    timestamp: entry.timestamp,
+                    content: entry.content,
+                    score: entry.score.unwrap_or(0.0) as f32,
+                    metadata: serde_json::json!({
+                        "id": entry.id,
+                        "key": entry.key,
+                        "category": entry.category,
+                        "timestamp": entry.timestamp,
+                        "session_id": entry.session_id,
+                    })
+                    .to_string(),
                 })
                 .collect();
             

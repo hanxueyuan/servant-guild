@@ -1,4 +1,5 @@
 /target
+/target*/
 firmware/*/target
 *.db
 *.db-journal

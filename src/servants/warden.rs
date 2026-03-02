@@ -9,7 +9,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ use crate::safety::{AuditLogger, Snapshot, TransactionManager};
 
 // Type aliases for consistency
 type AuditLog = AuditLogger;
-type RollbackManager = TransactionManager;
+type RollbackManager = Mutex<TransactionManager>;
 
 /// Security policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -337,11 +337,11 @@ impl Warden {
     /// Create a safety snapshot before a risky operation
     pub async fn create_snapshot(&self, operation_id: &str) -> Result<String, ServantError> {
         if let Some(manager) = &self.rollback_manager {
-            use std::path::Path;
-            let snapshot = manager
-                .create_snapshot(Path::new(operation_id))
+            manager
+                .lock()
+                .begin()
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
-            Ok(snapshot.id.clone())
+            Ok(operation_id.to_string())
         } else {
             Err(ServantError::Internal(
                 "Rollback manager not configured".to_string(),
@@ -353,6 +353,7 @@ impl Warden {
     pub async fn rollback(&self, _snapshot_id: &str) -> Result<(), ServantError> {
         if let Some(manager) = &self.rollback_manager {
             manager
+                .lock()
                 .rollback()
                 .map_err(|e| ServantError::Internal(e.to_string()))?;
             Ok(())

@@ -6,6 +6,8 @@
 //! 3. Rollback mechanism with atomic transactions
 //! 4. Integration with the Safety Core
 
+#![cfg(feature = "rollback-recovery")]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::tempdir;

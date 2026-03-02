@@ -1,11 +1,21 @@
+#[cfg(feature = "phase3-orchestration")]
 pub mod build;
 pub mod docker;
+#[cfg(feature = "phase3-orchestration")]
 pub mod error_analyzer;
+#[cfg(feature = "phase3-orchestration")]
+pub mod evolution;
+#[cfg(feature = "phase3-orchestration")]
 pub mod evolution_workflow;
+#[cfg(feature = "phase3-orchestration")]
 pub mod hot_swap;
+#[cfg(feature = "phase3-orchestration")]
+pub mod manager;
 pub mod native;
+#[cfg(feature = "rollback-recovery")]
 pub mod rollback;
 pub mod sandbox;
+#[cfg(feature = "phase3-orchestration")]
 pub mod state_migration;
 pub mod traits;
 pub mod wasm;
@@ -17,24 +27,31 @@ pub mod bridges;
 #[cfg(feature = "runtime-wasm")]
 pub mod state;
 
+#[cfg(feature = "phase3-orchestration")]
 pub use build::{BuildAutomation, BuildAutomationImpl, BuildConfig, BuildResult};
 pub use docker::DockerRuntime;
+#[cfg(feature = "phase3-orchestration")]
 pub use error_analyzer::{
     AutoFixResult, AutoFixer, BuildContext, BuildError, ErrorAnalyzer, FixSuggestion,
 };
+#[cfg(feature = "phase3-orchestration")]
 pub use evolution::{
     EvolutionConfig, EvolutionEngine, EvolutionPlan, EvolutionResult, EvolutionStatus,
     EvolutionTrigger, EvolutionType,
 };
+#[cfg(feature = "phase3-orchestration")]
 pub use hot_swap::{
     HotSwap, HotSwapManager, ModuleMetadata, ModuleVersion, SwapResult, SwapStrategy,
 };
 pub use native::NativeRuntime;
+#[cfg(feature = "rollback-recovery")]
 pub use rollback::{
     BackupConfig, RecoveryPlan, RecoveryStep, RecoveryStepType, RollbackManager, RollbackPoint,
     RollbackPointType, RollbackResult,
 };
 pub use sandbox::{BuildSandbox, SandboxConfig, SandboxManager, SandboxResult};
+#[cfg(feature = "phase3-orchestration")]
+pub use state_migration::{MigrationPlan, StateMigrator, StateSnapshot};
 pub use traits::RuntimeAdapter;
 pub use wasm::{WasmCapabilities, WasmRuntime};
 

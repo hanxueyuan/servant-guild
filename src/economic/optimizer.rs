@@ -77,12 +77,13 @@ impl TokenOptimizer {
             }
         }
 
+        let optimized_tokens = Self::estimate_tokens(&optimized);
         OptimizedPrompt {
             original: prompt.to_string(),
             optimized,
             estimated_savings_percent: savings * 100.0,
             original_tokens: Self::estimate_tokens(prompt),
-            optimized_tokens: Self::estimate_tokens(&optimized),
+            optimized_tokens,
         }
     }
 

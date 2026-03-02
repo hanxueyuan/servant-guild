@@ -37,8 +37,10 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use dialoguer::{Input, Password};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
+use std::sync::Arc;
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
+use crate::security::SecurityPolicy;
 
 fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
     let t: f64 = s.parse().map_err(|e| format!("{e}"))?;
@@ -789,7 +791,7 @@ async fn main() -> Result<()> {
     config.apply_env_overrides();
 
     // Initialize Safety Core (Prudent Agency)
-    let audit_logger = std::sync::Arc::new(security::audit::AuditLogger::new(
+    let audit_logger = Arc::new(safety::audit::AuditLogger::new(
         config.security.audit.clone(),
         config.workspace_dir.clone(),
     )?);
@@ -821,29 +823,113 @@ async fn main() -> Result<()> {
             task_id,
             input,
         } => {
-            let runtime = runtime::wasm::WasmRuntime::new(config.runtime.wasm.clone());
+            let servant_runtime = runtime::wasm::WasmRuntime::new(config.runtime.wasm.clone());
             let workspace = config.workspace_dir.clone();
             let task_id = task_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
             info!("🚀 Launching Servant: {} (Task: {})", name, task_id);
 
-            // TODO: Inject AuditLogger into Runtime once WasmRuntime supports it
-            // For now, we just log the attempt
-            audit_logger.log(
-                &security::audit::AuditEvent::new(
-                    security::audit::AuditEventType::CommandExecution,
-                )
-                .with_actor("host".to_string(), None, None)
-                .with_action(
-                    format!("launch_servant:{}", name),
-                    "medium".to_string(),
-                    true,
-                    true,
-                ),
-            )?;
+            let security_policy = Arc::new(SecurityPolicy::from_config(
+                &config.autonomy,
+                &config.workspace_dir,
+            ));
 
-            match runtime
-                .execute_component(&name, &task_id, &input, &workspace)
+            let mem: Arc<dyn memory::Memory> = Arc::from(memory::create_memory_with_storage_and_routes(
+                &config.memory,
+                &config.embedding_routes,
+                Some(&config.storage.provider.config),
+                &config.workspace_dir,
+                config.api_key.as_deref(),
+            )?);
+
+            let runtime_adapter: Arc<dyn runtime::RuntimeAdapter> =
+                Arc::from(runtime::create_runtime(&config.runtime)?);
+
+            let (composio_key, composio_entity_id) = if config.composio.enabled {
+                (
+                    config.composio.api_key.as_deref(),
+                    Some(config.composio.entity_id.as_str()),
+                )
+            } else {
+                (None, None)
+            };
+
+            let tool_list = tools::all_tools_with_runtime(
+                Arc::new(config.clone()),
+                &security_policy,
+                Arc::clone(&runtime_adapter),
+                Arc::clone(&mem),
+                composio_key,
+                composio_entity_id,
+                &config.browser,
+                &config.http_request,
+                &config.web_fetch,
+                &config.workspace_dir,
+                &config.agents,
+                config.api_key.as_deref(),
+                &config,
+            );
+
+            let tools_map: std::collections::HashMap<String, Arc<dyn tools::Tool>> = tool_list
+                .into_iter()
+                .map(|tool| {
+                    let name = tool.name().to_string();
+                    (name, Arc::from(tool))
+                })
+                .collect();
+
+            let tools_map = Arc::new(tools_map);
+
+            let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
+            let model_name = config
+                .default_model
+                .as_deref()
+                .unwrap_or("anthropic/claude-sonnet-4")
+                .to_string();
+            let provider: Arc<dyn providers::Provider> = Arc::from(providers::create_routed_provider(
+                provider_name,
+                config.api_key.as_deref(),
+                config.api_url.as_deref(),
+                &config.reliability,
+                &config.model_routes,
+                &model_name,
+            )?);
+
+            let consensus_engine = {
+                let cfg = consensus::ConsensusConfig {
+                    core_servants_count: 1,
+                    normal_quorum: 1,
+                    critical_quorum: 1,
+                    voting_timeout_secs: 0,
+                    owner_veto_enabled: true,
+                };
+                let engine = Arc::new(consensus::ConsensusEngine::with_config(
+                    cfg,
+                    consensus::Constitution::default(),
+                ));
+                engine.register_servant(name.clone());
+                engine.set_owner(name.clone());
+                engine
+            };
+
+            let servant_audit_logger = Arc::new(safety::audit::AuditLogger::new(
+                config.runtime.wasm.audit.clone(),
+                config.workspace_dir.clone(),
+            )?);
+
+            let deps = runtime::wasm::HostStateDeps {
+                provider,
+                tools: tools_map,
+                audit_logger: servant_audit_logger,
+                consensus_engine: Some(consensus_engine),
+                memory: Some(mem),
+                rollback_manager: Some(Arc::new(parking_lot::Mutex::new(
+                    safety::TransactionManager::new(),
+                ))),
+            };
+
+            match servant_runtime
+                .execute_component(&name, &task_id, &input, &workspace, deps)
                 .await
             {
                 Ok(result) => {

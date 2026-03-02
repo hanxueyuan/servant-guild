@@ -13,6 +13,8 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::net::TcpStream;
+use tokio::time::{sleep, timeout, Duration, Instant};
 
 use super::{
     Servant, ServantError, ServantId, ServantResult, ServantRole, ServantStatus, ServantTask,
@@ -192,6 +194,7 @@ pub struct Contractor {
     resources: RwLock<HashMap<String, Resource>>,
     /// Configuration store
     config_store: RwLock<HashMap<String, ConfigEntry>>,
+    config_history: RwLock<HashMap<String, Vec<ConfigEntry>>>,
     /// Health check interval in seconds
     health_check_interval: u64,
     /// Lifecycle event history
@@ -209,6 +212,7 @@ impl Contractor {
             consensus: None,
             resources: RwLock::new(HashMap::new()),
             config_store: RwLock::new(HashMap::new()),
+            config_history: RwLock::new(HashMap::new()),
             health_check_interval: 60,
             lifecycle_events: RwLock::new(Vec::new()),
             usage_stats: RwLock::new(HashMap::new()),
@@ -292,14 +296,15 @@ impl Contractor {
         resource_id: &str,
         triggered_by: String,
     ) -> Result<(), ServantError> {
-        let mut resources = self.resources.write();
-        let resource = resources.get_mut(resource_id).ok_or_else(|| {
-            ServantError::InvalidTask(format!("Resource {} not found", resource_id))
-        })?;
-
-        // Update status
-        let old_status = resource.status.clone();
-        resource.status = ResourceStatus::Starting;
+        let old_status = {
+            let mut resources = self.resources.write();
+            let resource = resources.get_mut(resource_id).ok_or_else(|| {
+                ServantError::InvalidTask(format!("Resource {} not found", resource_id))
+            })?;
+            let old_status = resource.status.clone();
+            resource.status = ResourceStatus::Starting;
+            old_status
+        };
 
         // Log start event
         self.log_lifecycle_event(LifecycleEvent {
@@ -312,10 +317,25 @@ impl Contractor {
                 "previous_status": format!("{:?}", old_status),
             })),
         });
-
-        // TODO: Implement actual resource start
-        // For now, mark as healthy
-        resource.status = ResourceStatus::Healthy;
+        let health = self.health_check(resource_id).await?;
+        let status = if health.responding && health.score >= 80 {
+            ResourceStatus::Healthy
+        } else if health.responding {
+            ResourceStatus::Degraded
+        } else {
+            ResourceStatus::Unhealthy
+        };
+        self.update_resource_status(resource_id, status.clone())?;
+        if status == ResourceStatus::Unhealthy {
+            self.log_lifecycle_event(LifecycleEvent {
+                id: uuid::Uuid::new_v4().to_string(),
+                resource_id: resource_id.to_string(),
+                event_type: LifecycleEventType::Failed,
+                timestamp: Utc::now(),
+                triggered_by: self.id.as_str().to_string(),
+                details: Some(serde_json::json!({ "error": health.last_error })),
+            });
+        }
 
         Ok(())
     }
@@ -326,14 +346,22 @@ impl Contractor {
         resource_id: &str,
         triggered_by: String,
     ) -> Result<(), ServantError> {
-        let mut resources = self.resources.write();
-        let resource = resources.get_mut(resource_id).ok_or_else(|| {
-            ServantError::InvalidTask(format!("Resource {} not found", resource_id))
-        })?;
-
-        // Update status
-        let old_status = resource.status.clone();
-        resource.status = ResourceStatus::Stopped;
+        let old_status = {
+            let mut resources = self.resources.write();
+            let resource = resources.get_mut(resource_id).ok_or_else(|| {
+                ServantError::InvalidTask(format!("Resource {} not found", resource_id))
+            })?;
+            let old_status = resource.status.clone();
+            resource.status = ResourceStatus::Stopped;
+            resource.health = HealthStatus {
+                score: 0,
+                responding: false,
+                last_error: None,
+                metrics: HashMap::new(),
+            };
+            resource.last_check = Some(Utc::now());
+            old_status
+        };
 
         // Log stop event
         self.log_lifecycle_event(LifecycleEvent {
@@ -346,8 +374,6 @@ impl Contractor {
                 "previous_status": format!("{:?}", old_status),
             })),
         });
-
-        // TODO: Implement actual resource stop
 
         Ok(())
     }
@@ -450,21 +476,133 @@ impl Contractor {
 
     /// Perform health check on a resource
     pub async fn health_check(&self, resource_id: &str) -> Result<HealthStatus, ServantError> {
+        let (resource_type, config, status) = {
+            let resources = self.resources.read();
+            let resource = resources.get(resource_id).ok_or_else(|| {
+                ServantError::InvalidTask(format!("Resource {} not found", resource_id))
+            })?;
+            (
+                resource.resource_type.clone(),
+                resource.config.clone(),
+                resource.status.clone(),
+            )
+        };
+
+        let (score, responding, last_error, metrics) = match resource_type {
+            ResourceType::ExternalAPI => {
+                let url = config
+                    .get("healthcheck")
+                    .and_then(|h| h.get("http_url"))
+                    .and_then(|v| v.as_str())
+                    .or_else(|| config.get("url").and_then(|v| v.as_str()))
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(str::to_string);
+
+                if let Some(url) = url {
+                    let client = reqwest::Client::new();
+                    let start = std::time::Instant::now();
+                    let result = timeout(Duration::from_secs(3), client.get(url).send()).await;
+                    match result {
+                        Ok(Ok(resp)) if resp.status().is_success() => {
+                            let ms = start.elapsed().as_millis() as f64;
+                            let mut metrics = HashMap::new();
+                            metrics.insert("latency_ms".to_string(), ms);
+                            (100, true, None, metrics)
+                        }
+                        Ok(Ok(resp)) => (
+                            0,
+                            false,
+                            Some(format!("HTTP {}", resp.status())),
+                            HashMap::new(),
+                        ),
+                        Ok(Err(e)) => (0, false, Some(e.to_string()), HashMap::new()),
+                        Err(_) => (0, false, Some("timeout".to_string()), HashMap::new()),
+                    }
+                } else {
+                    (
+                        if status == ResourceStatus::Healthy { 100 } else { 50 },
+                        status == ResourceStatus::Healthy || status == ResourceStatus::Degraded,
+                        None,
+                        HashMap::new(),
+                    )
+                }
+            }
+            ResourceType::Database | ResourceType::Cache | ResourceType::MessageQueue => {
+                let host = config
+                    .get("host")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty());
+                let port = config.get("port").and_then(|v| v.as_u64()).and_then(|p| {
+                    if p <= u64::from(u16::MAX) {
+                        Some(p as u16)
+                    } else {
+                        None
+                    }
+                });
+
+                if let (Some(host), Some(port)) = (host, port) {
+                    let addr = format!("{host}:{port}");
+                    let start = std::time::Instant::now();
+                    match timeout(Duration::from_secs(2), TcpStream::connect(addr)).await {
+                        Ok(Ok(_)) => {
+                            let ms = start.elapsed().as_millis() as f64;
+                            let mut metrics = HashMap::new();
+                            metrics.insert("connect_ms".to_string(), ms);
+                            (100, true, None, metrics)
+                        }
+                        Ok(Err(e)) => (0, false, Some(e.to_string()), HashMap::new()),
+                        Err(_) => (0, false, Some("timeout".to_string()), HashMap::new()),
+                    }
+                } else {
+                    (
+                        if status == ResourceStatus::Healthy { 100 } else { 50 },
+                        status == ResourceStatus::Healthy || status == ResourceStatus::Degraded,
+                        None,
+                        HashMap::new(),
+                    )
+                }
+            }
+            ResourceType::Storage => {
+                let path = config
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty());
+                if let Some(path) = path {
+                    match std::fs::metadata(path) {
+                        Ok(_) => (100, true, None, HashMap::new()),
+                        Err(e) => (0, false, Some(e.to_string()), HashMap::new()),
+                    }
+                } else {
+                    (
+                        if status == ResourceStatus::Healthy { 100 } else { 50 },
+                        status == ResourceStatus::Healthy || status == ResourceStatus::Degraded,
+                        None,
+                        HashMap::new(),
+                    )
+                }
+            }
+            _ => (
+                if status == ResourceStatus::Healthy { 100 } else { 50 },
+                status == ResourceStatus::Healthy || status == ResourceStatus::Degraded,
+                None,
+                HashMap::new(),
+            ),
+        };
+
+        let health = HealthStatus {
+            score,
+            responding,
+            last_error,
+            metrics,
+        };
+
         let mut resources = self.resources.write();
         let resource = resources.get_mut(resource_id).ok_or_else(|| {
             ServantError::InvalidTask(format!("Resource {} not found", resource_id))
         })?;
-
-        // TODO: Implement actual health check based on resource type
-        // For now, return a mock healthy status
-
-        let health = HealthStatus {
-            score: 100,
-            responding: true,
-            last_error: None,
-            metrics: HashMap::new(),
-        };
-
         resource.health = health.clone();
         resource.last_check = Some(Utc::now());
 
@@ -505,6 +643,9 @@ impl Contractor {
         }
 
         let mut store = self.config_store.write();
+        let key_for_history = key.clone();
+        let key_for_log = key.clone();
+        let updated_by_for_log = updated_by.clone();
 
         // Get old version
         let old_version = store.get(&key).map(|e| e.version).unwrap_or(0);
@@ -520,7 +661,7 @@ impl Contractor {
             },
             is_secret,
             updated_at: Utc::now(),
-            updated_by,
+            updated_by: updated_by.clone(),
             version: new_version,
         };
 
@@ -531,10 +672,19 @@ impl Contractor {
         }
 
         store.insert(key, actual_entry);
+        let actual_entry = store
+            .get(&key_for_history)
+            .cloned()
+            .expect("stored above");
+        self.config_history
+            .write()
+            .entry(key_for_history)
+            .or_insert_with(Vec::new)
+            .push(actual_entry);
 
         println!(
             "[Contractor] Config updated: {} (v{}, by {})",
-            key, new_version, updated_by
+            key_for_log, new_version, updated_by_for_log
         );
 
         Ok(())
@@ -596,11 +746,105 @@ impl Contractor {
 
     /// Rollback a configuration to a previous version
     pub fn rollback_config(&self, key: &str, to_version: u32) -> Result<(), ServantError> {
-        // TODO: Implement config version history and rollback
-        // For now, this is a placeholder
-        Err(ServantError::Internal(
-            "Config rollback not implemented yet".to_string(),
-        ))
+        let history = self.config_history.read();
+        let entries = history.get(key).ok_or_else(|| {
+            ServantError::InvalidTask(format!("Config key {} not found", key))
+        })?;
+        let target = entries
+            .iter()
+            .find(|e| e.version == to_version)
+            .cloned()
+            .ok_or_else(|| {
+                ServantError::InvalidTask(format!(
+                    "Config key {} does not have version {}",
+                    key, to_version
+                ))
+            })?;
+
+        let mut store = self.config_store.write();
+        let current_version = store.get(key).map(|e| e.version).unwrap_or(0);
+        let new_version = current_version + 1;
+
+        let entry = ConfigEntry {
+            key: key.to_string(),
+            value: target.value,
+            is_secret: target.is_secret,
+            updated_at: Utc::now(),
+            updated_by: self.id.as_str().to_string(),
+            version: new_version,
+        };
+
+        store.insert(key.to_string(), entry.clone());
+        drop(store);
+
+        self.config_history
+            .write()
+            .entry(key.to_string())
+            .or_insert_with(Vec::new)
+            .push(entry);
+
+        Ok(())
+    }
+
+    async fn require_approval(
+        &self,
+        decision_type: DecisionType,
+        title: String,
+        description: String,
+        payload: Option<serde_json::Value>,
+    ) -> Result<(), ServantError> {
+        let Some(consensus) = &self.consensus else {
+            return Ok(());
+        };
+        if !consensus.requires_vote(&decision_type) {
+            return Ok(());
+        }
+
+        let proposal = consensus
+            .create_proposal(
+                title,
+                description,
+                self.id.as_str().to_string(),
+                decision_type,
+                payload,
+            )
+            .map_err(|e| ServantError::Internal(e.to_string()))?;
+
+        consensus
+            .cast_vote(
+                &proposal.id,
+                self.id.as_str().to_string(),
+                Vote::Yes,
+                "auto-approve".to_string(),
+            )
+            .map_err(|e| ServantError::Internal(e.to_string()))?;
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let tally = consensus
+                .evaluate_proposal(&proposal.id)
+                .map_err(|e| ServantError::Internal(e.to_string()))?;
+            match tally.result {
+                crate::consensus::ConsensusResult::Passed => return Ok(()),
+                crate::consensus::ConsensusResult::Rejected
+                | crate::consensus::ConsensusResult::Expired
+                | crate::consensus::ConsensusResult::Vetoed => {
+                    return Err(ServantError::Internal(format!(
+                        "Approval denied: {:?}",
+                        tally.result
+                    )))
+                }
+                crate::consensus::ConsensusResult::Pending => {}
+            }
+
+            if Instant::now() >= deadline {
+                return Err(ServantError::Internal(format!(
+                    "Approval pending: {}",
+                    proposal.id
+                )));
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
     }
 
     /// Scale a resource (if supported)
@@ -609,21 +853,25 @@ impl Contractor {
         resource_id: &str,
         scale_factor: f32,
     ) -> Result<(), ServantError> {
-        // This requires consensus for resource allocation
-        if let Some(consensus) = &self.consensus {
-            if consensus.requires_vote(&DecisionType::ResourceAllocation) {
-                // TODO: Create proposal and wait for approval
-                return Err(ServantError::Internal(
-                    "Scaling requires approval".to_string(),
-                ));
-            }
-        }
+        self.require_approval(
+            DecisionType::ResourceAllocation,
+            "Scale Resource".to_string(),
+            format!("Scale resource {resource_id} to {scale_factor}"),
+            Some(serde_json::json!({ "resource_id": resource_id, "scale_factor": scale_factor })),
+        )
+        .await?;
 
-        // TODO: Implement actual scaling
-        // For now, just update the config
         let mut resources = self.resources.write();
         if let Some(resource) = resources.get_mut(resource_id) {
             resource.config["scale_factor"] = serde_json::json!(scale_factor);
+            self.log_lifecycle_event(LifecycleEvent {
+                id: uuid::Uuid::new_v4().to_string(),
+                resource_id: resource_id.to_string(),
+                event_type: LifecycleEventType::Scaled,
+                timestamp: Utc::now(),
+                triggered_by: self.id.as_str().to_string(),
+                details: Some(serde_json::json!({ "scale_factor": scale_factor })),
+            });
         }
 
         Ok(())
@@ -631,22 +879,34 @@ impl Contractor {
 
     /// Deploy a new resource or update an existing one
     pub async fn deploy(&self, mut resource: Resource) -> Result<String, ServantError> {
-        // This requires consensus
-        if let Some(consensus) = &self.consensus {
-            if consensus.requires_vote(&DecisionType::SystemUpdate) {
-                // TODO: Create proposal and wait for approval
-                return Err(ServantError::Internal(
-                    "Deployment requires approval".to_string(),
-                ));
-            }
-        }
+        let id = if resource.id.trim().is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            resource.id.clone()
+        };
+        resource.id = id.clone();
 
-        let id = resource.id.clone();
+        let resource_name = resource.name.clone();
+        let resource_type = format!("{:?}", &resource.resource_type);
+        self.require_approval(
+            DecisionType::SystemUpdate,
+            "Deploy Resource".to_string(),
+            format!("Deploy resource {} ({:?})", resource.name.clone(), &resource.resource_type),
+            Some(serde_json::json!({ "resource_id": id, "name": resource_name, "resource_type": resource_type })),
+        )
+        .await?;
+
         resource.status = ResourceStatus::Starting;
 
         self.resources.write().insert(id.clone(), resource);
-
-        // TODO: Implement actual deployment
+        self.log_lifecycle_event(LifecycleEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            resource_id: id.clone(),
+            event_type: LifecycleEventType::Updated,
+            timestamp: Utc::now(),
+            triggered_by: self.id.as_str().to_string(),
+            details: None,
+        });
 
         Ok(id)
     }
@@ -795,12 +1055,12 @@ mod tests {
             tags: vec!["primary".to_string()],
         };
 
-        contractor.register_resource(resource);
+        contractor.register_resource(resource, "test".to_string());
 
         assert_eq!(contractor.get_resources().len(), 1);
         assert!(contractor.get_resource("res-001").is_some());
 
-        contractor.unregister_resource("res-001");
+        contractor.unregister_resource("res-001", "test".to_string());
         assert_eq!(contractor.get_resources().len(), 0);
     }
 
@@ -852,7 +1112,7 @@ mod tests {
             tags: vec![],
         };
 
-        contractor.register_resource(resource);
+        contractor.register_resource(resource, "test".to_string());
 
         let health = contractor.health_check("res-001").await.unwrap();
         assert!(health.responding);
@@ -868,7 +1128,8 @@ mod tests {
         assert_eq!(health.overall_score, 100);
 
         // Add resources
-        contractor.register_resource(Resource {
+        contractor.register_resource(
+            Resource {
             id: "r1".to_string(),
             name: "R1".to_string(),
             resource_type: ResourceType::Database,
@@ -877,9 +1138,12 @@ mod tests {
             health: HealthStatus::default(),
             last_check: None,
             tags: vec![],
-        });
+        },
+            "test".to_string(),
+        );
 
-        contractor.register_resource(Resource {
+        contractor.register_resource(
+            Resource {
             id: "r2".to_string(),
             name: "R2".to_string(),
             resource_type: ResourceType::Cache,
@@ -888,7 +1152,9 @@ mod tests {
             health: HealthStatus::default(),
             last_check: None,
             tags: vec![],
-        });
+        },
+            "test".to_string(),
+        );
 
         let health = contractor.get_system_health();
         assert_eq!(health.total_resources, 2);

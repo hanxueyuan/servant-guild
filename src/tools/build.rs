@@ -18,6 +18,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::Command;
 
@@ -69,7 +70,7 @@ pub struct BuildResult {
 /// Build tools for Wasm compilation
 pub struct BuildTools {
     /// GitHub bridge for code access
-    github: Arc<GitHubBridge>,
+    github: Arc<dyn GitHubBridge>,
     /// Working directory
     work_dir: PathBuf,
     /// Output directory for Wasm files
@@ -78,7 +79,7 @@ pub struct BuildTools {
 
 impl BuildTools {
     /// Create new Build Tools
-    pub fn new(github: Arc<GitHubBridge>, work_dir: PathBuf) -> Self {
+    pub fn new(github: Arc<dyn GitHubBridge>, work_dir: PathBuf) -> Self {
         let output_dir = work_dir.join("target/wasm32-wasi/release");
 
         Self {
@@ -253,17 +254,18 @@ impl BuildTools {
         };
 
         // Find .wasm files
-        let mut wasm_files = tokio::fs::read_dir(&target_dir)
-            .await?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .map(|ext| ext == "wasm")
-                    .unwrap_or(false)
-            })
-            .collect::<Vec<_>>();
+        let mut wasm_files = Vec::new();
+        let mut read_dir = tokio::fs::read_dir(&target_dir).await?;
+        while let Some(entry) = read_dir.next_entry().await? {
+            if entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("wasm"))
+            {
+                wasm_files.push(entry);
+            }
+        }
 
         if wasm_files.is_empty() {
             anyhow::bail!("No Wasm file found in target directory");

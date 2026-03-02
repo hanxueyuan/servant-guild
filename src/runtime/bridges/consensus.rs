@@ -8,14 +8,14 @@ impl Host for HostState {
     /// Create a new proposal for collective decision
     async fn propose(&mut self, title: String, description: String) -> Result<String, String> {
         if let Some(ref consensus_engine) = self.consensus_engine {
-            use crate::consensus::Proposal;
-            
             // Create a proposal with default decision type (Normal)
+            let servant_id = self.servant_id.clone();
+            consensus_engine.register_servant(servant_id.clone());
             let proposal = consensus_engine
                 .create_proposal(
                     title.clone(),
                     description.clone(),
-                    "unknown_servant".to_string(), // TODO: Get actual servant ID from context
+                    servant_id,
                     DecisionType::SystemUpdate,
                     None,
                 )
@@ -31,15 +31,17 @@ impl Host for HostState {
     async fn vote(&mut self, proposal_id: String, approve: bool, reason: String) -> Result<(), String> {
         if let Some(ref consensus_engine) = self.consensus_engine {
             let vote_type = if approve {
-                Vote::Approve
+                Vote::Yes
             } else {
-                Vote::Reject
+                Vote::No
             };
             
+            let servant_id = self.servant_id.clone();
+            consensus_engine.register_servant(servant_id.clone());
             consensus_engine
                 .cast_vote(
                     &proposal_id,
-                    "unknown_servant".to_string(), // TODO: Get actual servant ID from context
+                    servant_id,
                     vote_type,
                     reason,
                 )

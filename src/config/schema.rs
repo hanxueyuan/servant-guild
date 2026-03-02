@@ -206,6 +206,10 @@ pub struct Config {
     #[serde(default)]
     pub agents: HashMap<String, DelegateAgentConfig>,
 
+    /// Agents IPC coordination configuration (`[agents_ipc]`).
+    #[serde(default)]
+    pub agents_ipc: AgentsIpcConfig,
+
     /// Hooks configuration (lifecycle hooks and built-in hook toggles).
     #[serde(default)]
     pub hooks: HooksConfig,
@@ -274,6 +278,77 @@ fn default_max_depth() -> u32 {
 
 fn default_max_tool_iterations() -> usize {
     10
+}
+
+// ── Agents IPC ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AgentsIpcConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_agents_ipc_db_path")]
+    pub db_path: PathBuf,
+    #[serde(default = "default_agents_ipc_staleness_secs")]
+    pub staleness_secs: u64,
+}
+
+fn default_agents_ipc_db_path() -> PathBuf {
+    PathBuf::from("agents_ipc.db")
+}
+
+fn default_agents_ipc_staleness_secs() -> u64 {
+    30
+}
+
+impl Default for AgentsIpcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            db_path: default_agents_ipc_db_path(),
+            staleness_secs: default_agents_ipc_staleness_secs(),
+        }
+    }
+}
+
+fn default_goal_loop_interval_minutes() -> u64 {
+    10
+}
+
+fn default_goal_loop_step_timeout_secs() -> u64 {
+    120
+}
+
+fn default_goal_loop_max_steps_per_cycle() -> u32 {
+    3
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GoalLoopConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_goal_loop_interval_minutes")]
+    pub interval_minutes: u64,
+    #[serde(default = "default_goal_loop_step_timeout_secs")]
+    pub step_timeout_secs: u64,
+    #[serde(default = "default_goal_loop_max_steps_per_cycle")]
+    pub max_steps_per_cycle: u32,
+    #[serde(default)]
+    pub channel: Option<String>,
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
+impl Default for GoalLoopConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_minutes: default_goal_loop_interval_minutes(),
+            step_timeout_secs: default_goal_loop_step_timeout_secs(),
+            max_steps_per_cycle: default_goal_loop_max_steps_per_cycle(),
+            channel: None,
+            target: None,
+        }
+    }
 }
 
 // ── Hardware Config (wizard-driven) ─────────────────────────────
@@ -3744,6 +3819,7 @@ impl Default for Config {
             cost: CostConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
+            agents_ipc: AgentsIpcConfig::default(),
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
@@ -5277,6 +5353,7 @@ default_temperature = 0.7
             cost: CostConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
+            agents_ipc: AgentsIpcConfig::default(),
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
@@ -5459,6 +5536,7 @@ tool_dispatcher = "xml"
             cost: CostConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
+            agents_ipc: AgentsIpcConfig::default(),
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),

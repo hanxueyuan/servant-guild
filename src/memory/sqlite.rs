@@ -779,6 +779,13 @@ impl Memory for SqliteMemory {
             .await
             .unwrap_or(false)
     }
+
+    async fn embed_one(&self, text: &str) -> anyhow::Result<Vec<f32>> {
+        Ok(self
+            .get_or_compute_embedding(text)
+            .await?
+            .unwrap_or_default())
+    }
 }
 
 #[cfg(test)]

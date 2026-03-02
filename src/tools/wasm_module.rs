@@ -31,12 +31,10 @@ impl WasmModuleTool {
             .unwrap_or(false);
         let fuel_override = args
             .get("fuel_override")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
+            .and_then(serde_json::Value::as_u64);
         let memory_override_mb = args
             .get("memory_override_mb")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
+            .and_then(serde_json::Value::as_u64);
 
         let allowed_hosts = match args.get("allowed_hosts") {
             Some(value) => {

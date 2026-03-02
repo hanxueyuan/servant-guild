@@ -118,8 +118,9 @@ impl TokenTracker {
             log.push(usage);
 
             // Keep only last 10000 records
-            if log.len() > 10000 {
-                log.drain(0..log.len() - 10000);
+            let excess = log.len().saturating_sub(10000);
+            if excess > 0 {
+                log.drain(0..excess);
             }
         }
     }
