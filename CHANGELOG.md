@@ -1,11 +1,36 @@
 # Changelog
 
-All notable changes to ZeroClaw will be documented in this file.
+All notable changes to ZeroClaw/ServantGuild will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### ServantGuild Architecture
+
+ZeroClaw has evolved into **ServantGuild** - a Rust-first, Wasm-driven, highly autonomous multi-agent collaborative system.
+
+#### Core Philosophy
+- **Autonomy**: Agents (Servants) can self-detect, self-decide, and self-update
+- **Consensus**: Major decisions require full-guild voting, rejecting single-point dictatorship
+- **Isolation**: Each Servant runs in an independent Wasm sandbox, hot-swappable without restart
+- **Evolution**: Through GitHub as a gene pool, the Guild can write, test, and release new versions of itself
+
+#### Core Servants (5 Permanent)
+| Role | Responsibility |
+|------|---------------|
+| **Coordinator** | Owner communication, task dispatch, status reporting |
+| **Contractor** | Servant creation/destruction, config management, version releases |
+| **Speaker** | Organize guild meetings, collect votes, calculate consensus |
+| **Warden** | Security audit, performance monitoring, version validation |
+| **Worker** | Core execution: code writing, tool invocation |
+
+#### Implementation Phases
+- **Phase 1 (Genesis)**: Wasmtime integration, Host Functions, CLI interface ✅
+- **Phase 2 (Assembly)**: 5 Core Servants, Consensus Engine ✅
+- **Phase 3 (Evolution)**: GitHub API, Code compilation, Hot-swap, Rollback ✅
+- **Phase 4 (Autonomy)**: Production deployment, Observability, Security hardening ✅
 
 ### Phase 4: Autonomy (Production Deployment)
 

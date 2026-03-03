@@ -1,17 +1,21 @@
 # ServantGuild API Reference
 
-**Version**: 0.3.0  
-**Last Updated**: 2025-01-16
+**Version**: 0.4.0  
+**Last Updated**: 2025-01-16  
+**Architecture**: [Whitepaper v1.1](./design/servant_guild_whitepaper_v1.1.md)
 
 ## Table of Contents
 
 1. [Core Types](#core-types)
-2. [Runtime API](#runtime-api)
+2. [Servant API](#servant-api)
 3. [Consensus API](#consensus-api)
-4. [Safety API](#safety-api)
-5. [Servant API](#servant-api)
-6. [Error Handling](#error-handling)
-7. [Configuration](#configuration)
+4. [Runtime API](#runtime-api)
+5. [Evolution API](#evolution-api)
+6. [Safety API](#safety-api)
+7. [Security API](#security-api)
+8. [Economic API](#economic-api)
+9. [Error Handling](#error-handling)
+10. [Configuration](#configuration)
 
 ---
 
@@ -26,11 +30,11 @@ pub struct ServantId {
 }
 
 pub enum ServantRole {
-    Coordinator,
-    Worker,
-    Warden,
-    Speaker,
-    Contractor,
+    Coordinator,  // 协调者 - 任务调度与冲突仲裁
+    Worker,       // 执行者 - 任务执行与代码修改
+    Warden,       // 监守者 - 质量保障与安全审计
+    Speaker,      // 发言人 - 对外通信与决策汇报
+    Contractor,   // 契约者 - 资源管理与外部对接
 }
 ```
 
@@ -43,15 +47,34 @@ pub struct Task {
     pub payload: serde_json::Value,
     pub created_at: DateTime<Utc>,
     pub deadline: Option<DateTime<Utc>>,
+    pub assignee: Option<ServantRole>,  // 指派执行者
 }
 
 pub enum TaskType {
+    // Core tasks
     Build,
     Test,
     Deploy,
+    
+    // Warden tasks
     Analyze,
+    Audit,
+    SecurityScan,
+    
+    // Speaker tasks
     Report,
+    Alert,
+    Communicate,
+    
+    // Contractor tasks
+    ResourceAllocate,
+    BudgetCheck,
+    ExternalIntegrate,
+    
+    // Evolution tasks
     Evolve,
+    SelfUpdate,
+    HotSwap,
 }
 ```
 
@@ -63,6 +86,7 @@ pub struct TaskResult {
     pub output: Option<serde_json::Value>,
     pub errors: Vec<String>,
     pub duration_ms: u64,
+    pub resources_used: ResourceUsage,  // Token, CPU, Memory
 }
 
 pub enum TaskStatus {
@@ -76,11 +100,245 @@ pub enum TaskStatus {
 
 ---
 
+## Servant API
+
+### Servant Trait (The Foundation)
+
+All servants implement this core trait:
+
+```rust
+#[async_trait]
+pub trait Servant: Send + Sync {
+    /// Get servant identity
+    fn id(&self) -> &ServantId;
+    
+    /// Get servant role
+    fn role(&self) -> ServantRole;
+    
+    /// Initialize servant
+    async fn initialize(&mut self, context: &GuildContext) -> Result<()>;
+    
+    /// Handle assigned task
+    async fn handle_task(&mut self, task: Task) -> Result<TaskResult>;
+    
+    /// Handle incoming message
+    async fn handle_message(&mut self, message: GuildMessage) -> Result<()>;
+    
+    /// Get current status
+    fn status(&self) -> ServantStatus;
+    
+    /// Shutdown gracefully
+    async fn shutdown(&mut self) -> Result<()>;
+}
+```
+
+### Coordinator (协调者)
+
+Task scheduling and conflict arbitration:
+
+```rust
+impl Coordinator {
+    /// Create new coordinator
+    pub fn new(id: ServantId, config: CoordinatorConfig) -> Self;
+    
+    /// Schedule a task to appropriate servant
+    pub async fn schedule_task(&self, task: Task) -> Result<SchedulingDecision>;
+    
+    /// Resolve conflict between servants
+    pub async fn resolve_conflict(&self, conflict: Conflict) -> Result<Resolution>;
+    
+    /// Get current task queue
+    pub fn get_queue(&self) -> &TaskQueue;
+    
+    /// Prioritize tasks
+    pub async fn prioritize(&mut self) -> Result<Vec<Task>>;
+    
+    /// Check resource availability
+    pub async fn check_resources(&self) -> Result<ResourceStatus>;
+}
+```
+
+### Worker (执行者)
+
+Task execution and code modification:
+
+```rust
+impl Worker {
+    /// Create new worker
+    pub fn new(id: ServantId, config: WorkerConfig) -> Self;
+    
+    /// Execute a task
+    pub async fn execute(&mut self, task: Task) -> Result<TaskResult>;
+    
+    /// Modify code (with audit)
+    pub async fn modify_code(
+        &mut self,
+        target: &Path,
+        changes: Vec<CodeChange>,
+        audit_reason: &str,
+    ) -> Result<ModificationResult>;
+    
+    /// Build project
+    pub async fn build(&self, config: &BuildConfig) -> Result<BuildResult>;
+    
+    /// Run tests
+    pub async fn test(&self, config: &TestConfig) -> Result<TestResult>;
+    
+    /// Get modification history
+    pub fn get_modification_history(&self) -> &[ModificationRecord];
+}
+```
+
+### Warden (监守者)
+
+Quality assurance and security audit:
+
+```rust
+impl Warden {
+    /// Create new warden
+    pub fn new(id: ServantId, config: WardenConfig) -> Self;
+    
+    /// Audit a modification
+    pub async fn audit_modification(&self, record: &ModificationRecord) -> Result<AuditResult>;
+    
+    /// Run security scan
+    pub async fn security_scan(&self, target: &Path) -> Result<SecurityReport>;
+    
+    /// Validate task result
+    pub async fn validate_result(&self, result: &TaskResult) -> Result<ValidationResult>;
+    
+    /// Create snapshot
+    pub async fn create_snapshot(&self, reason: &str) -> Result<SnapshotId>;
+    
+    /// Check code quality
+    pub async fn check_quality(&self, code: &str) -> Result<QualityReport>;
+}
+```
+
+### Speaker (发言人)
+
+External communication and decision reporting:
+
+```rust
+impl Speaker {
+    /// Create new speaker
+    pub fn new(id: ServantId, config: SpeakerConfig) -> Self;
+    
+    /// Report decision to owner
+    pub async fn report_decision(&self, decision: &Decision) -> Result<()>;
+    
+    /// Send alert
+    pub async fn send_alert(&self, alert: Alert) -> Result<()>;
+    
+    /// Handle incoming message from owner
+    pub async fn handle_owner_message(&mut self, message: &str) -> Result<Option<Task>>;
+    
+    /// Generate status report
+    pub async fn generate_report(&self) -> Result<StatusReport>;
+    
+    /// Get communication channels
+    fn channels(&self) -> &[CommunicationChannel];
+}
+```
+
+### Contractor (契约者)
+
+Resource management and external integration:
+
+```rust
+impl Contractor {
+    /// Create new contractor
+    pub fn new(id: ServantId, config: ContractorConfig) -> Self;
+    
+    /// Allocate resources
+    pub async fn allocate_resources(
+        &mut self,
+        request: ResourceRequest,
+    ) -> Result<ResourceAllocation>;
+    
+    /// Check budget
+    pub fn check_budget(&self) -> Result<BudgetStatus>;
+    
+    /// Integrate with external service
+    pub async fn integrate(
+        &mut self,
+        service: ExternalService,
+        config: IntegrationConfig,
+    ) -> Result<IntegrationResult>;
+    
+    /// Manage GitHub repository
+    pub async fn manage_repo(&self, action: RepoAction) -> Result<RepoResult>;
+    
+    /// Get resource usage
+    fn get_usage(&self) -> &ResourceUsage;
+}
+```
+
+---
+
+## Consensus API
+
+### ConsensusEngine
+
+From the Whitepaper:
+> **共识驱动 (Consensus-Driven)**: 所有关键决策需经多数同意，保障集体生存利益。
+
+```rust
+impl ConsensusEngine {
+    /// Create a new consensus engine
+    pub fn new() -> Self;
+    
+    /// Create with constitution (the rules)
+    pub fn with_constitution(
+        config: ConsensusConfig,
+        constitution: Constitution,
+    ) -> Self;
+    
+    /// Register a servant (gives voting rights)
+    pub fn register_servant(&self, servant_id: String, role: ServantRole);
+    
+    /// Unregister a servant
+    pub fn unregister_servant(&self, servant_id: &str);
+    
+    /// Create a proposal
+    pub fn create_proposal(
+        &self,
+        title: String,
+        description: String,
+        proposer: String,
+        decision_type: DecisionType,
+        payload: Option<serde_json::Value>,
+    ) -> Result<Proposal>;
+    
+    /// Cast a vote on a proposal
+    pub fn cast_vote(
+        &self,
+        proposal_id: &str,
+        voter: String,
+        vote: Vote,
+        reason: String,
+    ) -> Result<()>;
+    
+    /// Evaluate a proposal
+    pub fn evaluate_proposal(&self, proposal_id: &str) -> Result<VoteTally>;
+    
+    /// Owner veto a proposal
+    pub fn veto_proposal(&self, proposal_id: &str, owner_id: &str) -> Result<()>;
+}
+
+pub enum DecisionType {
+    Normal,    // 普通决策 - 3/5 通过
+    Critical,  // 关键决策 - 5/5 全票通过
+}
+```
+
+---
+
 ## Runtime API
 
 ### BuildSandbox
 
-Secure isolated build environment.
+Secure isolated build environment:
 
 ```rust
 impl BuildSandbox {
@@ -106,387 +364,111 @@ impl BuildSandbox {
 }
 ```
 
-**Example**:
+### HotSwapManager
+
+Runtime module replacement:
+
 ```rust
-let config = SandboxConfig::default()
-    .with_memory_limit(4096)
-    .with_time_limits(300, 600)
-    .with_network(false);
+impl HotSwapManager {
+    /// Create new hot-swap manager
+    pub fn new(config: HotSwapConfig) -> Self;
+    
+    /// Load a new module version
+    pub async fn load_module(
+        &mut self,
+        module_id: String,
+        wasm_path: PathBuf,
+        version: ModuleVersion,
+    ) -> Result<ModuleMetadata>;
+    
+    /// Perform hot-swap
+    pub async fn hot_swap(
+        &mut self,
+        module_id: String,
+        version: ModuleVersion,
+        strategy: SwapStrategy,
+    ) -> Result<SwapResult>;
+    
+    /// Get loaded modules
+    pub fn get_modules(&self) -> &HashMap<String, Vec<ModuleMetadata>>;
+    
+    /// Get active version
+    pub fn get_active_version(&self, module_id: &str) -> Option<&ModuleVersion>;
+}
 
-let sandbox = BuildSandbox::new("build-123", config).await?;
-sandbox.copy_project(&project_path).await?;
-
-let result = sandbox.execute("cargo", &["build", "--release"], None).await?;
-
-if result.success {
-    println!("Build succeeded in {}ms", result.duration_ms);
+pub enum SwapStrategy {
+    Immediate,                    // Instant swap
+    Graceful { timeout_secs: u64 }, // Wait for in-flight ops
+    Staged { stages: Vec<u8> },   // Gradual rollout
 }
 ```
 
-### SandboxConfig
+### RollbackManager
 
 ```rust
-impl SandboxConfig {
-    /// Create with sandbox root directory
-    pub fn new(sandbox_root: PathBuf) -> Self;
+impl RollbackManager {
+    /// Create new rollback manager
+    pub fn new(config: RollbackConfig) -> Self;
     
-    /// Set memory limit (MB)
-    pub fn with_memory_limit(self, mb: u64) -> Self;
+    /// Create rollback point
+    pub async fn create_rollback_point(
+        &mut self,
+        point_type: RollbackPointType,
+        description: String,
+    ) -> Result<RollbackPoint>;
     
-    /// Set time limits (CPU seconds, wall seconds)
-    pub fn with_time_limits(self, cpu_secs: u64, wall_secs: u64) -> Self;
+    /// Perform rollback
+    pub async fn rollback(&mut self, point_id: &str) -> Result<RollbackResult>;
     
-    /// Enable/disable network access
-    pub fn with_network(self, allowed: bool) -> Self;
-    
-    /// Use container isolation
-    pub fn with_container(self, image: String) -> Self;
-    
-    /// Add allowed domain for network
-    pub fn with_allowed_domain(self, domain: String) -> Self;
-    
-    /// Set environment variable
-    pub fn with_env(self, key: String, value: String) -> Self;
-}
-```
-
-### ErrorAnalyzer
-
-Intelligent error analysis and fix suggestion.
-
-```rust
-impl ErrorAnalyzer {
-    /// Create a new error analyzer
-    pub fn new() -> Self;
-    
-    /// Create with LLM support
-    pub fn with_llm(llm: Option<Arc<dyn LLMProvider>>) -> Self;
-    
-    /// Analyze build output and extract errors
-    pub async fn analyze(&self, output: &str) -> Result<Vec<BuildError>>;
-    
-    /// Generate fix suggestions for errors
-    pub async fn suggest_fixes(
-        &self,
-        errors: &[BuildError],
-        context: &BuildContext,
-    ) -> Result<Vec<FixSuggestion>>;
-    
-    /// Apply a fix suggestion
-    pub async fn apply_fix(
-        &self,
-        suggestion: &FixSuggestion,
-        project_path: &Path,
-    ) -> Result<FixResult>;
-    
-    /// Get success rate for a category
-    pub async fn get_success_rate(&self, category: FixCategory) -> f64;
-}
-```
-
-**Example**:
-```rust
-let analyzer = ErrorAnalyzer::new();
-let errors = analyzer.analyze(&build_output).await?;
-
-for error in &errors {
-    println!("[{}] {}:{}", error.error_code, error.file, error.line);
+    /// Get rollback points
+    pub fn get_rollback_points(&self) -> &[RollbackPoint];
 }
 
-let context = BuildContext {
-    available_modules: vec!["crate::module".to_string()],
-    ..Default::default()
-};
-
-let fixes = analyzer.suggest_fixes(&errors, &context).await?;
-for fix in &fixes {
-    println!("Fix: {} (confidence: {}%)", fix.description, fix.confidence);
-}
-```
-
-### BuildPipeline
-
-Multi-stage build pipeline.
-
-```rust
-impl BuildPipeline {
-    /// Create a new build pipeline
-    pub fn new(config: PipelineConfig) -> Result<Self>;
-    
-    /// Create with LLM support
-    pub fn with_llm(config: PipelineConfig, llm: Arc<dyn LLMProvider>) -> Result<Self>;
-    
-    /// Run the full pipeline
-    pub async fn run(&self, proposal: Option<&Proposal>) -> Result<PipelineResult>;
-    
-    /// Get pipeline result by ID
-    pub async fn get_result(&self, id: &str) -> Option<PipelineResult>;
-    
-    /// List all pipeline runs
-    pub async fn list_runs(&self) -> Vec<(String, bool, u64)>;
-}
-```
-
-**Pipeline Stages**:
-```rust
-pub enum PipelineStage {
-    Prepare,   // Validate inputs, create workspace
-    Fetch,     // Download dependencies
-    Build,     // Compile the project
-    Test,      // Run test suite
-    Package,   // Create deployment artifact
-    Deploy,    // Deploy to target environment
-}
-```
-
-**Example**:
-```rust
-let config = PipelineConfig {
-    project_root: PathBuf::from("./my-project"),
-    build_target: BuildTarget::Release,
-    auto_fix: true,
-    ..Default::default()
-};
-
-let pipeline = BuildPipeline::new(config)?;
-let result = pipeline.run(None).await?;
-
-println!("Pipeline {} finished: {}", result.id, result.success);
-for (stage, stage_result) in &result.stages {
-    println!("  {:?}: {}ms", stage, stage_result.duration_ms);
-}
-```
-
-### StateMigrator
-
-State migration for hot-swap.
-
-```rust
-impl StateMigrator {
-    /// Create a new state migrator
-    pub fn new() -> Self;
-    
-    /// Register a schema
-    pub async fn register_schema(&self, version: &str, schema: StateSchema);
-    
-    /// Register a transform function
-    pub async fn register_transform(&self, name: &str, transform: TransformFn);
-    
-    /// Create a state snapshot
-    pub async fn create_snapshot(
-        &self,
-        module_id: &str,
-        module_version: &str,
-        schema_version: &str,
-        data: serde_json::Value,
-    ) -> Result<StateSnapshot>;
-    
-    /// Plan a migration
-    pub async fn plan_migration(
-        &self,
-        from_version: &str,
-        to_version: &str,
-        source_schema: StateSchema,
-        target_schema: StateSchema,
-    ) -> Result<MigrationPlan>;
-    
-    /// Execute migration
-    pub async fn migrate(
-        &self,
-        snapshot: &StateSnapshot,
-        plan: &MigrationPlan,
-    ) -> Result<MigrationResult>;
-    
-    /// Get migration statistics
-    pub async fn get_stats(&self) -> MigrationStats;
-}
-```
-
-**Example**:
-```rust
-let migrator = StateMigrator::new();
-
-// Create snapshot
-let data = serde_json::json!({ "counter": 42, "name": "test" });
-let snapshot = migrator.create_snapshot("module-1", "1.0.0", "1.0.0", data).await?;
-
-// Plan migration
-let plan = migrator.plan_migration("1.0.0", "1.1.0", source_schema, target_schema).await?;
-
-// Execute migration
-let result = migrator.migrate(&snapshot, &plan).await?;
-println!("Migrated {} fields", result.fields_migrated);
-```
-
-### EvolutionWorkflow
-
-Complete self-evolution pipeline.
-
-```rust
-impl EvolutionWorkflow {
-    /// Create a new evolution workflow manager
-    pub fn new(
-        consensus: Arc<ConsensusEngine>,
-        pipeline: Arc<BuildPipeline>,
-        canary: Arc<CanaryTester>,
-        config: WorkflowConfig,
-    ) -> Self;
-    
-    /// Add LLM provider
-    pub fn with_llm(self, llm: Arc<dyn LLMProvider>) -> Self;
-    
-    /// Start a new evolution workflow
-    pub async fn start(&self, trigger: EvolutionTrigger) -> Result<String>;
-    
-    /// Approve workflow (for human approval)
-    pub async fn approve(&self, workflow_id: &str, approved: bool) -> Result<()>;
-    
-    /// Get workflow state
-    pub async fn get_state(&self, workflow_id: &str) -> Option<WorkflowState>;
-    
-    /// Get workflow history
-    pub async fn get_history(&self) -> Vec<WorkflowRecord>;
-    
-    /// Get workflow statistics
-    pub async fn get_stats(&self) -> WorkflowStats;
-}
-```
-
-**Example**:
-```rust
-let workflow = EvolutionWorkflow::new(
-    consensus,
-    pipeline,
-    canary,
-    WorkflowConfig::default(),
-);
-
-// Start evolution
-let id = workflow.start(EvolutionTrigger::PerformanceDegradation {
-    metric: "latency".to_string(),
-    current_value: 500.0,
-    threshold: 200.0,
-}).await?;
-
-// Monitor progress
-let state = workflow.get_state(&id).await.unwrap();
-println!("Stage: {:?}", state.stage);
-
-// Approve if needed
-if state.human_approval_required {
-    workflow.approve(&id, true).await?;
+pub enum RollbackPointType {
+    Manual,
+    PreDeployment,
+    PostDeployment,
+    Periodic,
 }
 ```
 
 ---
 
-## Consensus API
+## Evolution API
 
-### ConsensusEngine
+### EvolutionEngine
+
+From the Whitepaper:
+> **进化 (Evolution)**: 通过 GitHub 仓库作为基因库，使魔团能够编写、测试、发布自己的新版本，实现自我迭代。
 
 ```rust
-impl ConsensusEngine {
-    /// Create a new consensus engine
-    pub fn new() -> Self;
+impl EvolutionEngine {
+    /// Create new evolution engine
+    pub fn new(config: EvolutionConfig) -> Self;
     
-    /// Create with custom configuration
-    pub fn with_config(config: ConsensusConfig, constitution: Constitution) -> Self;
+    /// Trigger evolution process
+    pub async fn trigger_evolution(
+        &mut self,
+        trigger: EvolutionTrigger,
+    ) -> Result<EvolutionPlan>;
     
-    /// Register a servant (gives voting rights)
-    pub fn register_servant(&self, servant_id: String);
+    /// Execute evolution plan
+    pub async fn execute_evolution(
+        &mut self,
+        plan_id: String,
+        auto_approve: bool,
+    ) -> Result<EvolutionResult>;
     
-    /// Unregister a servant
-    pub fn unregister_servant(&self, servant_id: &str);
-    
-    /// Create a new proposal
-    pub fn create_proposal(
-        &self,
-        title: String,
-        description: String,
-        proposer: String,
-        decision_type: DecisionType,
-        payload: Option<serde_json::Value>,
-    ) -> Result<Proposal>;
-    
-    /// Cast a vote on a proposal
-    pub fn cast_vote(
-        &self,
-        proposal_id: &str,
-        voter: String,
-        vote: Vote,
-        reason: String,
-    ) -> Result<()>;
-    
-    /// Evaluate a proposal
-    pub fn evaluate_proposal(&self, proposal_id: &str) -> Result<VoteTally>;
-    
-    /// Owner veto a proposal
-    pub fn veto_proposal(&self, proposal_id: &str, owner_id: &str) -> Result<()>;
+    /// Get active evolutions
+    pub fn get_active_evolutions(&self) -> &[EvolutionPlan];
 }
-```
 
-### UpdateProposal
-
-```rust
-impl UpdateProposal {
-    /// Create a new update proposal
-    pub fn new(
-        title: String,
-        description: String,
-        proposer: String,
-        update_type: UpdateType,
-    ) -> Self;
-    
-    /// Add rationale
-    pub fn with_rationale(self, rationale: String) -> Self;
-    
-    /// Add benefits
-    pub fn with_benefits(self, benefits: Vec<String>) -> Self;
-    
-    /// Add risks
-    pub fn with_risks(self, risks: Vec<String>) -> Self;
-    
-    /// Add rollback plan
-    pub fn with_rollback_plan(self, plan: RollbackPlan) -> Self;
-    
-    /// Add test results
-    pub fn with_test_results(self, results: TestResults) -> Self;
-    
-    /// Set confidence (0-100)
-    pub fn with_confidence(self, confidence: u8) -> Self;
-    
-    /// Calculate risk score (0-100)
-    pub fn calculate_risk_score(&self) -> u8;
-    
-    /// Check if safe to execute
-    pub fn is_safe_to_execute(&self) -> bool;
-    
-    /// Convert to consensus proposal
-    pub fn into_proposal(self) -> Proposal;
-}
-```
-
-**Example**:
-```rust
-let proposal = UpdateProposalBuilder::new(
-    "Update Coordinator Module".to_string(),
-    "Performance improvements".to_string(),
-    "warden-1".to_string(),
-    UpdateType::ModuleUpdate {
-        module_id: "coordinator".to_string(),
-        from_version: "1.0.0".to_string(),
-        to_version: "1.1.0".to_string(),
-    },
-)
-.rationale("Improve scheduling efficiency".to_string())
-.benefit("20% latency reduction".to_string())
-.risk("Potential scheduling bugs".to_string())
-.confidence(85)
-.build();
-
-if proposal.is_safe_to_execute() {
-    let consensus_proposal = proposal.into_proposal();
-    // Submit to consensus engine
+pub enum EvolutionTrigger {
+    PerformanceDegradation { metric: String, current_value: f64, threshold: f64 },
+    BugDetected { bug_id: String, severity: Severity },
+    FeatureRequest { description: String },
+    PeriodicUpdate { interval: Duration },
+    OwnerCommand { command: String },
 }
 ```
 
@@ -496,62 +478,150 @@ if proposal.is_safe_to_execute() {
 
 ### CanaryTester
 
+From the Whitepaper:
+> **金丝雀发布 (Canary)**: 小范围先试，再逐步扩大，监控指标。
+
 ```rust
 impl CanaryTester {
     /// Create with configuration
-    pub fn new(config: CanaryConfig, metrics_collector: Arc<dyn MetricsCollector>) -> Self;
+    pub fn new(config: CanaryConfig, metrics: Arc<dyn MetricsCollector>) -> Self;
     
-    /// Create with defaults
-    pub fn with_defaults(metrics_collector: Arc<dyn MetricsCollector>) -> Self;
+    /// Start canary test
+    pub async fn start_test(&self, module_id: &str, version: &str) -> Result<String>;
     
-    /// Start a canary test
-    pub async fn start_test(&self, module_id: &str, new_version: &str) -> Result<String>;
-    
-    /// Monitor active test
+    /// Monitor test progress
     pub async fn monitor(&self, test_id: &str) -> Result<CanaryStatus>;
     
-    /// Advance to next step
+    /// Advance to next stage
     pub async fn advance(&self, test_id: &str) -> Result<CanaryStatus>;
     
-    /// Pause a test
-    pub async fn pause_test(&self, test_id: &str) -> Result<()>;
-    
-    /// Abort a test
-    pub async fn abort_test(&self, test_id: &str) -> Result<()>;
-    
-    /// Get test status
-    pub async fn get_status(&self, test_id: &str) -> Option<CanaryStatus>;
-    
-    /// Calculate health score
-    pub fn calculate_health_score(&self, status: &CanaryStatus) -> f64;
+    /// Abort and rollback
+    pub async fn abort(&self, test_id: &str) -> Result<()>;
 }
 ```
 
-### RecoveryManager
+### SafetyManager
 
 ```rust
-impl RecoveryManager {
-    /// Create a new recovery manager
-    pub fn new(
-        migrator: Arc<StateMigrator>,
-        snapshots_dir: PathBuf,
-        config: RecoveryConfig,
-    ) -> Result<Self>;
+impl SafetyManager {
+    /// Create new safety manager
+    pub fn new(config: SafetyConfig) -> Self;
     
-    /// Start recovery from snapshot
-    pub async fn recover(&self, snapshot_id: &str) -> Result<String>;
+    /// Perform pre-check for operation
+    pub async fn pre_check(&self, operation: &Operation) -> Result<PreCheckResult>;
     
-    /// Get recovery status
-    pub async fn get_status(&self, recovery_id: &str) -> Option<RecoveryStatus>;
+    /// Create safety checkpoint
+    pub async fn create_checkpoint(&mut self, reason: &str) -> Result<CheckpointId>;
     
-    /// Cancel an active recovery
-    pub async fn cancel_recovery(&self, recovery_id: &str) -> Result<()>;
+    /// Verify operation safety
+    pub async fn verify_safety(&self, operation: &Operation) -> Result<SafetyReport>;
+}
+```
+
+---
+
+## Security API
+
+### AuditLogger
+
+From the Architecture spec:
+> **审计追踪**: 所有敏感操作需记录审计日志，支持合规审查。
+
+```rust
+impl AuditLogger {
+    /// Create new audit logger
+    pub fn new(config: AuditConfig) -> Self;
     
-    /// Get recovery history
-    pub async fn get_history(&self) -> Vec<RecoveryRecord>;
+    /// Log audit event
+    pub async fn log(&self, event: AuditEvent) -> Result<()>;
     
-    /// Get recovery statistics
-    pub async fn get_stats(&self) -> RecoveryStats;
+    /// Query audit log
+    pub async fn query(&self, query: AuditQuery) -> Result<Vec<AuditEvent>>;
+    
+    /// Export for compliance
+    pub async fn export(&self, format: ExportFormat) -> Result<Vec<u8>>;
+}
+```
+
+### SecretsManager
+
+```rust
+impl SecretsManager {
+    /// Create new secrets manager
+    pub fn new(config: SecretsConfig) -> Result<Self>;
+    
+    /// Store secret
+    pub async fn store(&mut self, key: &str, value: &[u8]) -> Result<()>;
+    
+    /// Retrieve secret
+    pub async fn retrieve(&self, key: &str) -> Result<Vec<u8>>;
+    
+    /// Rotate secret
+    pub async fn rotate(&mut self, key: &str) -> Result<()>;
+}
+```
+
+### Encryption
+
+```rust
+impl Encryption {
+    /// Create with ChaCha20-Poly1305 (recommended)
+    pub fn new_chacha20(key: &[u8]) -> Result<Self>;
+    
+    /// Create with AES-256-GCM
+    pub fn new_aes256(key: &[u8]) -> Result<Self>;
+    
+    /// Encrypt data
+    pub fn encrypt(&self, plaintext: &[u8]) -> Result<EncryptedData>;
+    
+    /// Decrypt data
+    pub fn decrypt(&self, ciphertext: &EncryptedData) -> Result<Vec<u8>>;
+}
+```
+
+---
+
+## Economic API
+
+### BudgetManager
+
+From the Infrastructure spec:
+> **经费管理**: 每个使魔有独立 Token 配额，余额不足时暂停活动并通知 Speaker。
+
+```rust
+impl BudgetManager {
+    /// Create new budget manager
+    pub fn new(config: BudgetConfig) -> Self;
+    
+    /// Allocate budget to servant
+    pub async fn allocate(&mut self, servant_id: &str, amount: TokenAmount) -> Result<()>;
+    
+    /// Consume tokens
+    pub async fn consume(&mut self, servant_id: &str, amount: u64) -> Result<()>;
+    
+    /// Check balance
+    pub fn balance(&self, servant_id: &str) -> u64;
+    
+    /// Check if budget is healthy
+    pub fn is_healthy(&self, servant_id: &str) -> bool;
+}
+```
+
+### TokenOptimizer
+
+```rust
+impl TokenOptimizer {
+    /// Create new optimizer
+    pub fn new(config: OptimizerConfig) -> Self;
+    
+    /// Optimize prompt
+    pub fn optimize_prompt(&self, prompt: &str) -> Result<OptimizedPrompt>;
+    
+    /// Compress context
+    pub fn compress_context(&self, context: &str) -> Result<CompressedContext>;
+    
+    /// Select best provider
+    pub fn select_provider(&self, requirements: &ProviderRequirements) -> Result<Provider>;
 }
 ```
 
@@ -562,24 +632,27 @@ impl RecoveryManager {
 All APIs return `Result<T, anyhow::Error>` for comprehensive error handling.
 
 **Common Error Types**:
-- `SandboxError`: Sandbox creation or execution failures
-- `BuildError`: Build compilation failures
-- `MigrationError`: State migration failures
+- `ServantError`: Servant lifecycle failures
 - `ConsensusError`: Consensus decision failures
-- `RecoveryError`: Recovery operation failures
+- `SandboxError`: Sandbox creation or execution failures
+- `EvolutionError`: Evolution process failures
+- `SecurityError`: Security operation failures
+- `BudgetError`: Budget/token management failures
 
 **Example**:
 ```rust
-match sandbox.execute("cargo", &["build"], None).await {
-    Ok(result) => {
-        if result.timed_out {
-            eprintln!("Build timed out");
-        } else if !result.success {
-            eprintln!("Build failed: {}", result.stderr);
-        }
+match coordinator.schedule_task(task).await {
+    Ok(decision) => {
+        println!("Task {} assigned to {:?}", task.id, decision.assignee);
     }
     Err(e) => {
-        eprintln!("Execution error: {}", e);
+        if let Some(se) = e.downcast_ref::<ServantError>() {
+            eprintln!("Servant error: {:?}", se);
+        } else if let Some(ce) = e.downcast_ref::<ConsensusError>() {
+            eprintln!("Consensus error: {:?}", ce);
+        } else {
+            eprintln!("Unknown error: {}", e);
+        }
     }
 }
 ```
@@ -593,60 +666,89 @@ match sandbox.execute("cargo", &["build"], None).await {
 ```toml
 # servant-guild.toml
 
-[project]
-name = "my-servant-guild"
-version = "0.3.0"
+[guild]
+name = "ServantGuild-Alpha"
+version = "0.4.0"
+admin_user = "your_telegram_id"
 
+# Core Servants Configuration
+[servants.coordinator]
+enabled = true
+max_concurrent_tasks = 10
+
+[servants.worker]
+enabled = true
+build_timeout_secs = 300
+
+[servants.warden]
+enabled = true
+audit_all_modifications = true
+
+[servants.speaker]
+enabled = true
+channels = ["telegram", "slack"]
+
+[servants.contractor]
+enabled = true
+github_integration = true
+
+# Consensus Configuration
 [consensus]
 core_servants_count = 5
-normal_quorum = 3
-critical_quorum = 5
+normal_quorum = 3    # 普通决策: 3/5 通过
+critical_quorum = 5  # 关键决策: 5/5 全票
 voting_timeout_secs = 3600
 owner_veto_enabled = true
 
-[sandbox]
-max_memory_mb = 2048
-max_cpu_time_secs = 600
-max_wall_time_secs = 900
-network_allowed = true
-use_container = false
-
-[canary]
-initial_percentage = 5.0
-increment_percentage = 10.0
-step_duration_secs = 300
-auto_rollback = true
-
-[canary.thresholds.error_rate]
-warning = 0.05
-critical = 0.10
-
-[canary.thresholds.latency_p99]
-warning = 100.0
-critical = 200.0
-
+# Evolution Configuration
 [evolution]
 auto_evolve = false
 max_concurrent = 5
 require_human_approval = true
 high_risk_threshold = 70
 enable_canary = true
-auto_rollback = true
-learning_mode = false
 
-[pipeline]
-build_target = "release"
-auto_fix = true
-max_auto_fix_attempts = 3
-incremental = true
-timeout_secs = 600
+# Budget Configuration
+[budget]
+daily_limit_tokens = 1000000
+warning_threshold = 0.8  # 80% used
+critical_threshold = 0.95
 
-[recovery]
-max_concurrent = 3
-max_retries = 3
-backoff_base_ms = 1000
-verify_after = true
-auto_rollback = true
+[budget.servants.coordinator]
+daily_limit = 200000
+
+[budget.servants.worker]
+daily_limit = 300000
+
+[budget.servants.warden]
+daily_limit = 150000
+
+[budget.servants.speaker]
+daily_limit = 50000
+
+[budget.servants.contractor]
+daily_limit = 300000
+
+# Security Configuration
+[security]
+encryption_algorithm = "chacha20-poly1305"
+audit_retention_days = 90
+secret_rotation_interval_days = 30
+
+# Infrastructure
+[infrastructure]
+runtime = "docker"
+workspace_root = "/var/lib/servant-guild/workspace"
+db_url = "postgres://..."
+redis_url = "redis://..."
+
+# Red Phone (Alert Channels)
+[channels.telegram]
+bot_token = "${TELEGRAM_BOT_TOKEN}"
+allowed_users = ["${ADMIN_TELEGRAM_ID}"]
+
+[channels.slack]
+webhook_url = "${SLACK_WEBHOOK_URL}"
 ```
 
 ---
@@ -655,6 +757,7 @@ auto_rollback = true
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 0.3.0 | 2025-01-16 | Phase 3: Orchestration complete |
-| 0.2.0 | 2025-01-15 | Phase 2: Assembly complete |
-| 0.1.0 | 2025-01-14 | Phase 1: Foundation complete |
+| 0.4.0 | 2025-01-16 | Phase 4: Autonomy - Full production-ready API |
+| 0.3.0 | 2025-01-16 | Phase 3: Orchestration - Evolution APIs |
+| 0.2.0 | 2025-01-15 | Phase 2: Cognition - Consensus APIs |
+| 0.1.0 | 2025-01-14 | Phase 1: Core - Foundation APIs |

@@ -1,45 +1,115 @@
-# ServantGuild - Phase 3: Orchestration
+# ServantGuild - Phase 3: Orchestration (Evolution)
 
-## What's New in Phase 3
+**Status:** ✅ **Completed**
+**Reference:** [Whitepaper v1.1](./docs/design/servant_guild_whitepaper_v1.1.md)
 
-Phase 3 implements the orchestration layer that enables ServantGuild to autonomously manage its lifecycle, including GitHub integration, build automation, hot-swapping, rollback & recovery, and self-evolution capabilities.
+## Overview
 
-### New Capabilities
+Phase 3 implements the **Evolution** capability of ServantGuild - enabling the system to autonomously manage its lifecycle through GitHub integration, build automation, hot-swapping, rollback & recovery, and self-evolution capabilities.
 
-#### 1. GitHub Integration
+## Core Philosophy Alignment
+
+From the ServantGuild Whitepaper v1.1:
+
+> **进化 (Evolution)**: 通过 GitHub 仓库作为基因库，使魔团能够编写、测试、发布自己的新版本，实现自我迭代。
+
+Phase 3 delivers on this promise by implementing:
+
+1. **基因库 (Gene Pool)** - GitHub integration for autonomous code access
+2. **自我更新 (Self-Update)** - Automated build, test, and release pipeline
+3. **热替换 (Hot-Swap)** - Runtime module replacement without restart
+4. **回滚恢复 (Rollback & Recovery)** - Safety nets for failed updates
+
+## New Capabilities
+
+### 1. GitHub Integration (The Gene Pool)
 - Autonomous source code access
 - Repository cloning and management
 - Branch creation and PR generation
 - Release management
 - Commit history tracking
 
-#### 2. Build Automation
+**Implementation:** `src/runtime/bridges/github.rs`
+
+### 2. Build Automation
 - Automated Rust/Wasm compilation
 - Testing and linting (clippy, fmt)
 - Dependency management
 - Artifact tracking
 - Build result reporting
 
-#### 3. Hot-Swap Mechanism
+**Implementation:** `src/runtime/build.rs`
+
+### 3. Hot-Swap Mechanism
 - Runtime module replacement
 - Multiple swap strategies (Immediate, Graceful, Staged)
 - Atomic swapping with rollback support
 - Module version tracking
 - Capability extraction
 
-#### 4. Rollback & Recovery
+**Implementation:** `src/runtime/hot_swap.rs`
+
+### 4. Rollback & Recovery
 - Rollback point creation (manual, pre/post deployment)
 - State snapshot management
 - Configuration preservation
 - Recovery plan generation
 - Disaster recovery
 
-#### 5. Self-Evolution Engine
+**Implementation:** `src/runtime/rollback.rs`, `src/safety/rollback.rs`
+
+### 5. Self-Evolution Engine
 - Autonomous performance analysis
 - LLM-powered code generation
 - Risk assessment and approval workflow
 - Automated deployment with safety nets
 - Continuous improvement loop
+
+**Implementation:** `src/runtime/evolution_workflow.rs`
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Self-Evolution Engine                         │
+│              (感知 → 决策 → 开发 → 测试 → 发布)                    │
+└────────────┬────────────────────────────────────────────────────┘
+             │
+             ├─────────────────────────────────────────────────────┐
+             │                                                     │
+             ▼                                                     ▼
+    ┌─────────────────┐                                  ┌─────────────────┐
+    │  GitHub Bridge  │                                  │ Build Automation│
+    │   (基因库)       │                                  │   (编译测试)     │
+    └────────┬────────┘                                  └────────┬────────┘
+             │                                                     │
+             └─────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                     ┌─────────────────┐
+                     │  Hot-Swap Mgr   │
+                     │   (热替换)       │
+                     └────────┬────────┘
+                              │
+                              ▼
+                     ┌─────────────────┐
+                     │  Rollback Mgr   │
+                     │   (回滚恢复)     │
+                     └─────────────────┘
+```
+
+## Self-Update Flow (The Evolution Loop)
+
+From the Whitepaper:
+
+1. **感知 (Perceive)**: Warden detects capability gap or bug, or Speaker initiates periodic update proposal
+2. **决策 (Decide)**: Full guild votes to approve update resolution
+3. **开发 (Develop)**: Contractor pulls GitHub code, Worker modifies code
+4. **测试 (Test)**: Warden runs test cases
+5. **发布 (Release)**: Contractor publishes GitHub Release via Bot account (generates new Wasm)
+6. **热更 (Hot-Swap)**: All servants pull new Wasm, perform hash verification
+7. **验证 (Validate)**: Unupdated servants cross-validate updated servants (canary deployment)
+8. **确认 (Confirm)**: Validation passed → full rollout; Failed → collective rollback
 
 ## Quick Start
 
@@ -61,7 +131,7 @@ rustup update stable
 rustup default stable
 
 # Clone repository
-git clone https://github.com/your-org/servant-guild
+git clone https://github.com/hanxueyuan/servant-guild
 cd servant-guild
 
 # Build with Phase 3 features
@@ -149,9 +219,9 @@ if !plan.risk_assessment.requires_human_approval {
 
 ## Documentation
 
-- [Phase 3 Documentation](./docs/phase3_orchestration.md)
-- [Build Status](./docs/phase3_build_status.md)
-- [API Reference](https://docs.rs/servant-guild)
+- [Whitepaper v1.1](./docs/design/servant_guild_whitepaper_v1.1.md)
+- [Architecture v1.0](./docs/architecture/servant_guild_architecture_v1.0.md)
+- [Infrastructure Requirements](./docs/design/servant_guild_infrastructure.md)
 
 ## Testing
 
@@ -175,64 +245,13 @@ cargo doc --open
 - `phase3-orchestration`: All Phase 3 features
 - `full`: All features
 
-## Architecture
+## Next Phase
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Self-Evolution Engine                         │
-└────────────┬────────────────────────────────────────────────────┘
-             │
-             ├─────────────────────────────────────────────────────┐
-             │                                                     │
-             ▼                                                     ▼
-    ┌─────────────────┐                                  ┌─────────────────┐
-    │  GitHub Bridge  │                                  │ Build Automation│
-    └────────┬────────┘                                  └────────┬────────┘
-             │                                                     │
-             └─────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                     ┌─────────────────┐
-                     │  Hot-Swap Mgr   │
-                     └────────┬────────┘
-                              │
-                              ▼
-                     ┌─────────────────┐
-                     │Rollback Manager │
-                     └─────────────────┘
-```
+Phase 4 (Autonomy) builds on Phase 3 to deliver:
+- Production deployment infrastructure (Terraform, Kubernetes)
+- Complete observability stack (Prometheus, Loki, OpenTelemetry)
+- Economic model for token optimization
+- Security hardening
+- CI/CD automation
 
-## Progress
-
-- ✅ GitHub Bridge
-- ✅ Build Automation
-- ✅ Hot-Swap Mechanism
-- ✅ Rollback & Recovery
-- ✅ Self-Evolution Engine
-- ⏸️ Integration Testing (requires full environment)
-
-## Known Issues
-
-1. **Rust Version**: Requires Rust 1.87+, current environment is 1.75.0
-2. **Git2 Dependency**: Requires `libgit2-dev` system library
-3. **Integration Tests**: Require external credentials and full setup
-
-## Next Steps
-
-- Upgrade build environment to Rust 1.87+
-- Run full integration test suite
-- Performance benchmarking
-- Security audit
-- Production deployment
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
-
-## License
-
-MIT OR Apache-2.0
-
----
-
-**Status**: Phase 3 Implemented | **Next**: Phase 4 - Deployment & DevOps
+See [PHASE4.md](./PHASE4.md) for details.

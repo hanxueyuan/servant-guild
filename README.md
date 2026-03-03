@@ -56,6 +56,87 @@ Built by students and members of the Harvard, MIT, and Sundai.Club communities.
 
 <p align="center"><code>Trait-driven architecture · secure-by-default runtime · provider/channel/tool swappable · pluggable everything</code></p>
 
+---
+
+## 🏰 ServantGuild Architecture
+
+**ServantGuild** is the next-generation multi-agent autonomous system built on ZeroClaw. It implements a **Rust-first, Wasm-driven, highly autonomous** collaborative agent architecture.
+
+### Core Philosophy
+
+| Principle | Description |
+|-----------|-------------|
+| **Autonomy** | Agents (Servants) can self-detect, self-decide, and self-update |
+| **Consensus** | Major decisions require full-guild voting, rejecting single-point dictatorship |
+| **Isolation** | Each Servant runs in an independent Wasm sandbox, hot-swappable without restart |
+| **Evolution** | Through GitHub as a gene pool, the Guild can write, test, and release new versions of itself |
+
+### Core Servants (5 Permanent)
+
+| Role | Responsibility | ZeroClaw Mapping |
+|------|---------------|------------------|
+| **Coordinator** | Owner communication, task dispatch, status reporting | `Tony` (Coordinator) |
+| **Contractor** | Servant creation/destruction, config management, version releases | `System/Admin` |
+| **Speaker** | Organize guild meetings, collect votes, calculate consensus | `Consensus Engine` |
+| **Warden** | Security audit, performance monitoring, version validation | `security/audit.rs` |
+| **Worker** | Core execution: code writing, tool invocation | `Ben`/`Lei` (Logic/Research) |
+
+### Ephemeral Servants (0-15 Dynamic)
+
+On-demand agents for burst load handling (batch testing, documentation generation, etc.) - created when needed, destroyed via voting when idle.
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Owner (Human)                                  │
+│                    CLI / Web / Telegram / Discord                        │
+└─────────────────────────────────────┬───────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        Master Daemon (Rust)                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │   Runtime   │  │   Message   │  │    Host     │  │   Gateway   │     │
+│  │   Manager   │  │    Bus      │  │  Functions  │  │   (Axum)    │     │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘     │
+└─────────────────────────────────────┬───────────────────────────────────┘
+                                      │
+        ┌─────────────────────────────┼─────────────────────────────┐
+        │                             │                             │
+        ▼                             ▼                             ▼
+┌───────────────┐            ┌───────────────┐            ┌───────────────┐
+│  Coordinator  │            │   Contractor  │            │    Speaker    │
+│    (Wasm)     │            │    (Wasm)     │            │    (Wasm)     │
+└───────────────┘            └───────────────┘            └───────────────┘
+        │                             │                             │
+        └─────────────────────────────┼─────────────────────────────┘
+                                      │
+        ┌─────────────────────────────┼─────────────────────────────┐
+        │                             │                             │
+        ▼                             ▼                             ▼
+┌───────────────┐            ┌───────────────┐            ┌───────────────┐
+│    Warden     │            │    Worker     │            │   Ephemeral   │
+│    (Wasm)     │            │    (Wasm)     │            │  (0-15 Wasm)  │
+└───────────────┘            └───────────────┘            └───────────────┘
+```
+
+### Implementation Phases
+
+| Phase | Name | Status | Description |
+|-------|------|--------|-------------|
+| **Phase 1** | Genesis | ✅ Complete | Wasmtime integration, Host Functions, CLI interface |
+| **Phase 2** | Assembly | ✅ Complete | 5 Core Servants, Consensus Engine |
+| **Phase 3** | Evolution | ✅ Complete | GitHub API, Code compilation, Hot-swap, Rollback |
+| **Phase 4** | Autonomy | ✅ Complete | Production deployment, Observability, Security hardening |
+
+📖 **Detailed Documentation:**
+- [Whitepaper v1.1](docs/design/servant_guild_whitepaper_v1.1.md)
+- [Architecture v1.0](docs/architecture/servant_guild_architecture_v1.0.md)
+- [Infrastructure Requirements](docs/design/servant_guild_infrastructure.md)
+
+---
+
 ### 📢 Announcements
 
 Use this board for important notices (breaking changes, security advisories, maintenance windows, and release blockers).
