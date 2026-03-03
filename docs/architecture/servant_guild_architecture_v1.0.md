@@ -96,6 +96,56 @@
 - **安全**: 所有 Wasm 模块必须签名校验。
 - **成本**: 优化 Token 消耗，控制 API 费用。
 - **团队**: 全员掌握 Rust 和 Wasm 开发。
+- **跨平台**: 核心功能必须在 Linux 和 Windows 上通过测试，macOS 作为开发支持平台。
+
+### 3.5 跨平台技术规范
+
+#### 路径与文件系统
+- **路径构建**: 统一使用 `std::path::PathBuf` 或 `path.join()`，禁止字符串拼接路径分隔符。
+- **配置目录**: 使用 `dirs` crate 获取平台标准目录：
+  ```rust
+  let config_dir = dirs::config_dir()
+      .expect("Failed to get config directory")
+      .join("servant-guild");
+  ```
+- **临时目录**: 使用 `std::env::temp_dir()` 或 `tempfile` crate。
+
+#### 条件编译
+```rust
+#[cfg(target_os = "linux")]
+mod service {
+    pub fn install() { /* systemd */ }
+}
+
+#[cfg(target_os = "windows")]
+mod service {
+    pub fn install() { /* windows service */ }
+}
+
+#[cfg(target_os = "macos")]
+mod service {
+    pub fn install() { /* launchd */ }
+}
+```
+
+#### Shell 命令适配
+```rust
+pub fn get_shell_command(command: &str) -> Command {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", command]);
+        cmd
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", command]);
+        cmd
+    }
+}
+```
 
 ### 3.5 安全架构 (Safety & Sandbox)
 基于 Wasmtime 的沙盒隔离策略：
@@ -310,6 +360,135 @@ world servant {
 - **金丝雀发布**: 智能体版本灰度验证。
 - **灾难恢复 (DR)**: 异地多活，定期演练。
 
+### 9.5 跨平台部署架构
+
+ServantGuild 支持在 Linux、Windows、macOS 多平台上部署，提供一致的运行体验。
+
+#### 部署选项矩阵
+
+| 平台 | 推荐方式 | 服务管理 | 配置目录 | 日志目录 |
+|------|----------|----------|----------|----------|
+| **Linux** | Docker / Kubernetes / Systemd | `systemd` | `/etc/servant-guild/` | `/var/log/servant-guild/` |
+| **Windows** | Docker / Windows Service | `sc.exe` / PowerShell | `%ProgramData%\ServantGuild\` | `%ProgramData%\ServantGuild\logs\` |
+| **macOS** | Docker / Launchd | `launchctl` | `/usr/local/etc/servant-guild/` | `/usr/local/var/log/servant-guild/` |
+
+#### Linux 部署
+
+**Systemd 服务配置** (`/etc/systemd/system/servant-guild.service`):
+```ini
+[Unit]
+Description=ServantGuild Daemon
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=servant-guild
+Group=servant-guild
+WorkingDirectory=/opt/servant-guild
+ExecStart=/opt/servant-guild/bin/servant-guild daemon
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**部署命令**:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable servant-guild
+sudo systemctl start servant-guild
+```
+
+#### Windows 部署
+
+**Windows Service 注册** (PowerShell 管理员模式):
+```powershell
+# 安装服务
+sc.exe create "ServantGuild" binPath= "C:\Program Files\ServantGuild\bin\servant-guild.exe daemon" start= auto
+
+# 启动服务
+sc.exe start ServantGuild
+
+# 查看状态
+sc.exe query ServantGuild
+```
+
+**PowerShell 服务管理模块** (`src/safety/service/windows.rs`):
+```rust
+#[cfg(target_os = "windows")]
+pub fn install_service(name: &str, path: &Path) -> Result<()> {
+    // Windows Service 安装逻辑
+}
+
+#[cfg(target_os = "windows")]
+pub fn start_service(name: &str) -> Result<()> {
+    // Windows Service 启动逻辑
+}
+```
+
+#### macOS 部署
+
+**Launchd 配置** (`/Library/LaunchDaemons/com.servantguild.daemon.plist`):
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.servantguild.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/opt/servant-guild/bin/servant-guild</string>
+        <string>daemon</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+```
+
+**部署命令**:
+```bash
+sudo launchctl load /Library/LaunchDaemons/com.servantguild.daemon.plist
+sudo launchctl start com.servantguild.daemon
+```
+
+#### Docker 统一部署 (推荐)
+
+**Dockerfile**:
+```dockerfile
+FROM rust:1.87 AS builder
+WORKDIR /app
+COPY . .
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/servant-guild /usr/local/bin/
+ENTRYPOINT ["servant-guild"]
+```
+
+**Docker Compose** (`docker-compose.yml`):
+```yaml
+version: '3.8'
+services:
+  servant-guild:
+    image: servant-guild:latest
+    container_name: servant-guild
+    restart: unless-stopped
+    volumes:
+      - ./config:/etc/servant-guild
+      - ./data:/var/lib/servant-guild
+      - ./logs:/var/log/servant-guild
+    ports:
+      - "8080:8080"
+    environment:
+      - RUST_LOG=info
+```
+
 ---
 
 ## 10. 风险与演进
@@ -319,6 +498,10 @@ world servant {
 - **单点故障**: Master Daemon 是单点，需通过 HA 方案解决（如 K8s 多副本）。
 - **依赖失效**: LLM API 故障降级（切换 Provider 或本地模型）。
 - **合规变更**: 持续关注 AI 监管政策，保持数据隐私合规。
+- **跨平台兼容性**: 
+  - 定期在 CI 矩阵中运行 Linux 和 Windows 测试。
+  - 新功能开发时考虑平台差异，使用条件编译隔离。
+  - 文件权限和路径处理需在所有支持平台上验证。
 
 ### 10.2 演进计划
 - **MVP (Phase 1)**: 实现 Wasm 宿主，集成基本工具，单机运行。

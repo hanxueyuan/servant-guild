@@ -1,29 +1,42 @@
 # Phase 3: Orchestration - Self-Evolution Complete
 
-**Status:** ✅ **100% COMPLETE**  
+**Status:** 🔄 **Under Review**  
 **Version:** 0.3.0  
-**Date:** 2025-01-16
+**Date:** 2026-03-03
 
 ## Overview
 
 Phase 3 implements the orchestration layer for ServantGuild, enabling autonomous
-self-improvement through structured evolution workflows, secure build automation,
-and comprehensive safety mechanisms.
+self-improvement through structured evolution workflows and comprehensive safety mechanisms.
+
+---
+
+## Implementation Status Summary
+
+| Component | Status | Files |
+|-----------|--------|-------|
+| Sandbox Security | ✅ Complete | `src/runtime/sandbox.rs` |
+| Error Analyzer | ✅ Complete | `src/runtime/error_analyzer.rs` |
+| Build Pipeline | ✅ Complete | `src/runtime/build.rs` |
+| State Migration | ✅ Complete | `src/runtime/state_migration.rs` |
+| Update Proposal | ✅ Complete | `src/consensus/update_proposal.rs` |
+| State Recovery | ✅ Complete | `src/safety/state_recovery.rs` |
+| Canary Testing | ✅ Complete | `src/safety/canary.rs` |
+| Evolution Workflow | ✅ Complete | `src/runtime/evolution_workflow.rs` |
 
 ---
 
 ## Completed Deliverables
 
-### 1. Build Automation - Sandbox Security
+### 1. Build Automation - Process Isolation
 
 **File:** `src/runtime/sandbox.rs`
 
 - [x] Isolated workspace per agent
-- [x] Memory and CPU limits enforcement
+- [x] Memory and CPU limits enforcement (Unix)
 - [x] Network access control (whitelist only)
 - [x] Filesystem isolation (read-only except workspace)
 - [x] Timeout enforcement
-- [x] Docker/Podman container support
 - [x] Process-level isolation (Unix)
 - [x] Unit tests
 
@@ -37,16 +50,16 @@ and comprehensive safety mechanisms.
 - [x] Apply automatic fixes (with consensus approval)
 - [x] Track fix success rates per category
 - [x] LLM-based error analysis support
-- [x] Support for E0277, E0433, E0308, E0599, E0502, E0382, E0106, E0275
+- [x] Support for common error codes: E0277, E0433, E0308, E0599, E0502, E0382, E0106, E0275
 - [x] Unit tests
 
 ### 3. Contractor Build Pipeline
 
-**File:** `src/servants/contractor/pipeline.rs`
+**File:** `src/runtime/build.rs`
 
 - [x] Multi-stage pipeline (Prepare → Fetch → Build → Test → Package → Deploy)
 - [x] Auto-fix integration
-- [x] Sandboxed execution
+- [x] Process isolation for build execution
 - [x] Artifact generation
 - [x] Incremental build support
 - [x] Custom command support
@@ -61,7 +74,7 @@ and comprehensive safety mechanisms.
 - [x] Progressive migration through versions
 - [x] Snapshot-based migration
 - [x] Checksum verification
-- [x] Built-in transform functions (identity, int_to_string, flatten)
+- [x] Built-in transform functions
 - [x] Migration statistics tracking
 - [x] Unit tests
 
@@ -99,7 +112,7 @@ and comprehensive safety mechanisms.
 
 ### 7. Canary Testing (Warden)
 
-**File:** `src/servants/warden/canary.rs`
+**File:** `src/safety/canary.rs`
 
 - [x] Gradual rollout (5% → 50% → 100%)
 - [x] Metric monitoring (error rate, latency, CPU, memory)
@@ -126,37 +139,19 @@ and comprehensive safety mechanisms.
 
 ---
 
-## Documentation
-
-### Created Files
-
-1. `docs/phase3_completion_report.md` - Complete Phase 3 summary
-2. `docs/api_reference.md` - Comprehensive API documentation
-
-### Updated Files
-
-1. `docs/tasks/phase2_assembly_plan.md` - Marked Phase 2 as 100% complete
-2. `src/runtime/mod.rs` - Added new module exports
-3. `src/safety/mod.rs` - Added new module exports
-4. `src/consensus/mod.rs` - Added update_proposal module
-
----
-
 ## API Summary
 
 ### New Modules
 
 | Module | Key Types | Purpose |
 |--------|-----------|---------|
-| `runtime::sandbox` | `BuildSandbox`, `SandboxConfig` | Secure isolated builds |
+| `runtime::sandbox` | `BuildSandbox`, `SandboxConfig` | Secure isolated builds (Unix) |
 | `runtime::error_analyzer` | `ErrorAnalyzer`, `AutoFixer` | Error analysis and auto-fix |
 | `runtime::state_migration` | `StateMigrator`, `MigrationPlan` | State migration for hot-swap |
 | `runtime::evolution_workflow` | `EvolutionWorkflow`, `WorkflowStage` | Self-evolution pipeline |
 | `consensus::update_proposal` | `UpdateProposal`, `UpdateType` | Evolution proposals |
 | `safety::state_recovery` | `RecoveryManager`, `RecoveryPhase` | State recovery |
 | `safety::canary` | `CanaryTester`, `CanaryConfig` | Canary testing |
-| `servants::contractor::pipeline` | `BuildPipeline`, `PipelineStage` | Build pipeline |
-| `servants::warden::canary` | `CanaryTester`, `CanaryRunner` | Warden canary testing |
 
 ---
 
@@ -170,7 +165,6 @@ max_memory_mb = 2048
 max_cpu_time_secs = 600
 max_wall_time_secs = 900
 network_allowed = true
-use_container = false
 
 [canary]
 initial_percentage = 5.0
@@ -189,65 +183,17 @@ auto_rollback = true
 
 ---
 
-## Test Coverage
+## Verification Commands
 
-### Unit Tests Implemented
+```bash
+# 验证编译
+cargo check
 
-- `sandbox::tests::test_sandbox_creation`
-- `sandbox::tests::test_sandbox_execute_echo`
-- `sandbox::tests::test_sandbox_config_builder`
-- `error_analyzer::tests::test_analyze_errors`
-- `error_analyzer::tests::test_generate_import_fix`
-- `error_analyzer::tests::test_error_patterns`
-- `state_migration::tests::test_create_snapshot`
-- `state_migration::tests::test_plan_migration`
-- `state_migration::tests::test_transforms`
-- `update_proposal::tests::test_update_proposal_creation`
-- `update_proposal::tests::test_risk_calculation`
-- `update_proposal::tests::test_safety_check`
-- `update_proposal::tests::test_proposal_builder`
-- `state_recovery::tests::test_recovery_config`
-- `state_recovery::tests::test_recovery_manager_create`
-- `state_recovery::tests::test_snapshot_manager`
-- `canary::tests::test_canary_config_defaults`
-- `canary::tests::test_anomaly_threshold`
-- `canary::tests::test_canary_tester`
-- `canary::tests::test_canary_advance`
-- `evolution_workflow::tests::test_workflow_config_defaults`
-- `evolution_workflow::tests::test_evolution_trigger`
-- `evolution_workflow::tests::test_risk_assessment`
+# 运行测试
+cargo test --lib runtime:: sandbox error_analyzer state_migration
 
----
+# Clippy 检查
+cargo clippy -- -D warnings
+```
 
-## Known Limitations
-
-1. **Build Environment**: Requires Rust 1.87+ for full compilation
-2. **Container Support**: Docker/Podman needed for container isolation
-3. **LLM Integration**: Requires configured LLM provider for advanced features
-
----
-
-## Next Steps (Phase 4)
-
-1. **GitHub Integration**: PR handling, issue tracking, CI/CD triggers
-2. **Advanced Analytics**: Trend analysis, predictive maintenance
-3. **Multi-language Support**: Python, TypeScript, etc.
-4. **Distributed Deployment**: Multi-node, cluster-aware deployment
-5. **Enhanced LLM Integration**: Code generation, advanced error analysis
-
----
-
-## Conclusion
-
-Phase 3 delivers a comprehensive orchestration layer enabling ServantGuild to:
-
-- ✅ Build code securely in isolated sandboxes
-- ✅ Automatically analyze and fix build errors
-- ✅ Run complete build pipelines with auto-fix
-- ✅ Migrate state safely during hot-swaps
-- ✅ Propose, validate, and approve system updates
-- ✅ Recover from failures with rollback support
-- ✅ Deploy safely with canary testing
-- ✅ Execute complete self-evolution workflows
-
-**Phase 3 Status: ✅ COMPLETE**
+> **Note**: 当前进程隔离仅支持 Linux/Unix 平台。架构通过 `#[cfg(unix)]` 预留了 Windows/macOS 扩展能力。

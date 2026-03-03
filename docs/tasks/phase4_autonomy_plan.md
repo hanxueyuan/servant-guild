@@ -1,296 +1,196 @@
 # Phase 4: Autonomy - The Long Haul
 
-**Status:** ✅ **Completed** (2026-02-27)
+**Status:** 🔄 **Under Review**
 **Focus:** Production Deployment, Observability, and Full Autonomy
 **Reference:** `docs/design/servant_guild_whitepaper_v1.1.md`, `docs/architecture/servant_guild_architecture_v1.0.md`
 
-## Summary
+## Implementation Status Summary
 
-Phase 4 has been **successfully completed**. All production infrastructure, observability systems, economic model, security hardening, and CI/CD pipeline components have been implemented. The system is now ready for production deployment.
+| Component | Status | Files |
+|-----------|--------|-------|
+| Systemd Service | ✅ Complete | `deploy/systemd/` |
+| Install Scripts | ✅ Complete | `deploy/scripts/` |
+| Observability | ✅ Complete | `src/observability/`, `deploy/observability/` |
+| Economic Model | ✅ Complete | `src/economic/` |
+| Security Hardening | ✅ Complete | `src/security/` |
+| Audit System | ✅ Complete | `src/safety/audit.rs` |
 
-## 1. Production Deployment (The Sanctuary)
+---
 
-Move the ServantGuild from a development environment to a robust, long-running production setup.
+## 1. Production Deployment (Linux Native)
 
-- [x] **Infrastructure as Code (Terraform)** ✅
-    - [x] Define AWS resources: VPC, EC2, RDS (PostgreSQL), Redis. ✅
-    - [x] Define Security Groups and IAM roles for least privilege. ✅
-    - [x] Create VPC module with multi-AZ support. ✅
-    - [x] Create user_data.sh for EC2 initialization. ✅
-    - **Deliverables**:
-        - `deploy/terraform/main.tf` - Main infrastructure configuration
-        - `deploy/terraform/modules/vpc/main.tf` - VPC module
-        - `deploy/terraform/user_data.sh` - EC2 initialization script
+- [x] **Systemd Service** ✅ 已验证
+    - [x] Service unit file created
+    - [x] Auto-start configuration
+    - [x] Security hardening
+    - **File**: `deploy/systemd/servant-guild.service`
 
-- [x] **Containerization (Docker)** ✅
-    - [x] Create optimized `Dockerfile` for the Host (multi-stage build). ✅
-    - [x] Create `docker-compose.yml` for local testing with DB/Redis. ✅
-    - [x] Create Kubernetes manifests (Deployment, Service, PVC). ✅
-    - **Deliverables**:
-        - `deploy/docker/Dockerfile` - Multi-stage production Dockerfile
-        - `deploy/docker/docker-compose.yml` - Local development stack
+- [x] **Installation Script** ✅ 已验证
+    - [x] Install script created
+    - [x] Uninstall script created
+    - [x] System directories setup
+    - **Files**: `deploy/scripts/install.sh`, `deploy/scripts/uninstall.sh`
 
-- [x] **Kubernetes Deployment** ✅
-    - [x] Create Kubernetes Deployment with rolling updates. ✅
-    - [x] Create HorizontalPodAutoscaler for auto-scaling. ✅
-    - [x] Create Ingress with TLS termination. ✅
-    - [x] Create Helm chart for flexible deployment. ✅
-    - **Deliverables**:
-        - `deploy/kubernetes/servant-guild.yaml` - Complete Kubernetes manifests
-        - `deploy/helm/Chart.yaml` - Helm chart definition
-        - `deploy/helm/values.yaml` - Configurable values
+### Systemd Service Configuration
 
-- [x] **CI/CD Pipeline** ✅
-    - [x] Automate testing on every push. ✅
-    - [x] Automate build and push to container registry. ✅
-    - [x] Implement CD strategy (Canary with gradual rollout). ✅
-    - **Deliverables**:
-        - `.github/workflows/ci-cd.yml` - Complete CI/CD pipeline
+```ini
+[Unit]
+Description=ServantGuild Daemon
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=servant-guild
+ExecStart=/opt/servant-guild/bin/servant-guild daemon
+Restart=on-failure
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Installation Commands
+
+```bash
+# Install
+sudo ./deploy/scripts/install.sh
+
+# Check status
+sudo systemctl status servant-guild
+
+# View logs
+journalctl -u servant-guild -f
+```
 
 ## 2. Observability (The Eyes)
 
-Ensure the system is transparent and monitorable.
+- [x] **Logging** ✅ 已验证
+    - [x] Structured logging (JSON)
+    - [x] Log rotation support
+    - [x] Multiple log levels
+    - **File**: `src/observability/log.rs`
 
-- [x] **Logging (Loki)** ✅
-    - [x] Integrate structured logging (JSON) in Host and Guests. ✅
-    - [x] Set up Loki + Grafana for log aggregation and searching. ✅
-    - [x] Configure log retention (30 days). ✅
-    - **Deliverables**:
-        - `deploy/observability/loki/loki-config.yaml` - Loki configuration
-        - `deploy/observability/promtail/config.yml` - Log shipping configuration
+- [x] **Metrics (Prometheus)** ✅ 已验证
+    - [x] Metrics endpoint
+    - [x] Wasm usage tracking
+    - [x] Business metrics
+    - **File**: `src/observability/prometheus.rs`
 
-- [x] **Metrics (Prometheus)** ✅
-    - [x] Expose metrics endpoint (`/metrics`) from Host. ✅
-    - [x] Track Wasm usage: Memory, CPU, Fuel consumption. ✅
-    - [x] Track Business metrics: Tasks completed, Tokens used, Errors rate. ✅
-    - [x] Create alerting rules for critical conditions. ✅
-    - **Deliverables**:
-        - `deploy/observability/prometheus/prometheus.yml` - Prometheus configuration
-        - `deploy/observability/prometheus/rules/alerts.yml` - Alerting rules
-
-- [x] **Tracing (OpenTelemetry)** ✅
-    - [x] Implement distributed tracing across Host and Servant boundaries. ✅
-    - [x] Visualize request flow in Jaeger/Tempo. ✅
-    - [x] Configure tail sampling for cost optimization. ✅
-    - **Deliverables**:
-        - `deploy/observability/opentelemetry/otel-config.yaml` - OpenTelemetry configuration
+- [x] **Tracing (OpenTelemetry)** ✅ 已验证
+    - [x] Distributed tracing
+    - [x] Cross-servant boundaries
+    - **File**: `src/observability/otel.rs`
 
 ## 3. Economic Model (The Treasury)
 
-Manage resources and costs effectively.
+- [x] **Token Usage Optimization** ✅ 已验证
+    - [x] Token caching (`src/economic/cache.rs`)
+    - [x] Budget management (`src/economic/budget.rs`)
+    - [x] Token tracking (`src/economic/tracker.rs`)
+    - [x] Provider selection (`src/economic/provider.rs`)
+    - [x] Pricing engine (`src/economic/pricing.rs`)
+    - [x] Optimization strategies (`src/economic/optimizer.rs`)
 
-- [x] **Token Usage Optimization** ✅
-    - [x] Implement caching for LLM responses (Redis). ✅
-    - [x] Implement context window management (summarization). ✅
-    - [x] Implement budget limits per agent/task. ✅
-    - [x] Implement provider auto-selection for cost optimization. ✅
-    - **Deliverables**:
-        - `src/economic/mod.rs` - Main economic model module
-        - `src/economic/budget.rs` - Budget management
-        - `src/economic/tracker.rs` - Token usage tracking
-        - `src/economic/optimizer.rs` - Token optimization strategies
-        - `src/economic/pricing.rs` - Multi-provider pricing engine
-        - `src/economic/provider.rs` - Provider selection logic
-        - `src/economic/cache.rs` - Token caching
-        - `src/economic/metrics.rs` - Prometheus-compatible metrics
-
-- [x] **Cost Monitoring** ✅
-    - [x] Dashboard for API costs (OpenAI/Anthropic/DeepSeek). ✅
-    - [x] Alerting on unusual spending spikes. ✅
-    - [x] Budget status tracking and warnings. ✅
+- [x] **Cost Monitoring** ✅ 已验证
+    - [x] Dashboard metrics
+    - [x] Budget alerts
+    - **File**: `src/economic/metrics.rs`
 
 ## 4. Security Hardening (The Fortress)
 
-Protect the guild from external and internal threats.
+- [x] **Network Isolation** ✅ 已验证
+    - [x] Firewall rules
+    - [x] Domain whitelist
+    - **File**: `src/security/network.rs`
 
-- [x] **Network Isolation** ✅
-    - [x] Implement strict firewall rules (egress filtering). ✅
-    - [x] Implement NetworkPolicy for Kubernetes. ✅
-    - [x] Create zone-based segmentation. ✅
-    - **Deliverables**:
-        - `src/security/network.rs` - Network policy management
+- [x] **Secret Management** ✅ 已验证
+    - [x] Encrypted storage
+    - [x] No logging of secrets
+    - [x] Rotation policies
+    - **Files**: `src/security/secrets.rs`, `src/security/encryption.rs`
 
-- [x] **Secret Management** ✅
-    - [x] Integrate encrypted secret storage. ✅
-    - [x] Ensure secrets are never logged or exposed to unauthorized agents. ✅
-    - [x] Implement secret rotation policies. ✅
-    - **Deliverables**:
-        - `src/security/secrets.rs` - Secrets management
-        - `src/security/encryption.rs` - AES-256-GCM encryption
+- [x] **Access Control** ✅ 已验证
+    - [x] RBAC implementation
+    - [x] Security levels
+    - **File**: `src/security/policy.rs`
 
-- [x] **Access Control** ✅
-    - [x] Implement role-based access control (RBAC) for Owner/Admin actions. ✅
-    - [x] Implement security levels (Normal, Elevated, Critical). ✅
-    - [x] Implement security context for operations. ✅
-
-- [x] **Audit Logging** ✅
-    - [x] Implement comprehensive audit trail. ✅
-    - [x] Support compliance-ready exports (JSON/CSV). ✅
-    - [x] Implement retention management. ✅
-    - **Deliverables**:
-        - `src/security/audit.rs` - Audit logging system
-        - `src/security/validation.rs` - Input validation
-        - `src/security/mod.rs` - Security manager
+- [x] **Audit Logging** ✅ 已验证
+    - [x] Comprehensive audit trail
+    - [x] Compliance exports
+    - [x] Retention management
+    - **File**: `src/safety/audit.rs`
 
 ## 5. Handover (The Legacy)
 
-Prepare the system for independent operation.
-
 - [x] **Documentation** ✅
-    - [x] Complete `PHASE4.md` with all deliverables and usage examples. ✅
-    - [x] Create `docs/tasks/phase4_autonomy_plan.md` with completion status. ✅
-    - [x] Update `CHANGELOG.md` with Phase 4 changes. ✅
-    - [x] Create deployment guide in `PHASE4.md`. ✅
+    - [x] `PHASE4.md` created
+    - [x] `CHANGELOG.md` updated
 
-- [x] **Final Audit** ✅
-    - [x] Review all Phase 4 code implementations. ✅
-    - [x] Verify all dependencies are properly added to Cargo.toml. ✅
-    - [x] Ensure module exports are correct in lib.rs. ✅
+- [ ] **Final Audit** (需运行验证)
+    - [ ] Run all tests
+    - [ ] Verify deployment
 
-- [x] **Autonomy Test Planning** ✅
-    - [x] Define test scenarios for production deployment. ✅
-    - [x] Create smoke test scripts in CI/CD pipeline. ✅
-    - [x] Define health check endpoints. ✅
+- [ ] **Autonomy Test Planning** (需运行验证)
+    - [ ] Smoke tests
+    - [ ] Health checks
 
 ## 6. Milestones
 
-- [x] **M1: Production Ready** - System deployed to cloud environment. ✅
-    - Terraform infrastructure code ready
-    - Kubernetes deployment manifests ready
-    - Helm charts for flexible deployment
+- [ ] **M1: Production Ready** - 待验证
+    - Systemd service ready
+    - Installation script ready
 
-- [x] **M2: Fully Observable** - Dashboards and alerts active. ✅
-    - Prometheus metrics collection configured
-    - Loki log aggregation ready
-    - OpenTelemetry tracing configured
-    - Alert rules defined
+- [ ] **M2: Fully Observable** - 待验证
+    - Metrics configured
+    - Logs structured
+    - Traces enabled
 
-- [x] **M3: Economically Viable** - Token costs within budget. ✅
-    - Budget management system implemented
-    - Token tracking and optimization ready
-    - Cost monitoring dashboards ready
+- [ ] **M3: Economically Viable** - 待验证
+    - Budget system active
+    - Cost tracking enabled
 
-- [x] **M4: Autonomous** - Handover complete. ✅
-    - All Phase 4 deliverables complete
+- [ ] **M4: Autonomous** - 待验证
+    - All deliverables complete
     - Documentation updated
-    - CI/CD pipeline operational
-
-## Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Production Environment                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                           │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │                        AWS Infrastructure (Terraform)                │  │
-│  │  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐                │  │
-│  │  │     VPC     │   │     EC2     │   │     RDS     │                │  │
-│  │  │  (Multi-AZ) │──▶│ (Auto-Scale)│──▶│ PostgreSQL  │                │  │
-│  │  └─────────────┘   └─────────────┘   └─────────────┘                │  │
-│  │                           │                                          │  │
-│  │  ┌─────────────┐   ┌─────┴─────┐   ┌─────────────┐                  │  │
-│  │  │ ElastiCache │   │     S3    │   │ CloudWatch  │                  │  │
-│  │  │    Redis    │◀──│  Storage  │──▶│  Monitoring │                  │  │
-│  │  └─────────────┘   └───────────┘   └─────────────┘                  │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-│                                                                           │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │                      Kubernetes Cluster (EKS)                        │  │
-│  │                                                                      │  │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
-│  │  │                    ServantGuild Deployment                    │    │  │
-│  │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐           │    │  │
-│  │  │  │Coordinator  │  │   Worker    │  │   Warden    │           │    │  │
-│  │  │  │   (Wasm)    │  │   (Wasm)    │  │   (Wasm)    │           │    │  │
-│  │  │  └─────────────┘  └─────────────┘  └─────────────┘           │    │  │
-│  │  │  ┌─────────────┐  ┌─────────────┐                             │    │  │
-│  │  │  │   Speaker   │  │ Contractor  │                             │    │  │
-│  │  │  │   (Wasm)    │  │   (Wasm)    │                             │    │  │
-│  │  │  └─────────────┘  └─────────────┘                             │    │  │
-│  │  └─────────────────────────────────────────────────────────────┘    │  │
-│  │                                                                      │  │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
-│  │  │                     Observability Stack                       │    │  │
-│  │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐      │    │  │
-│  │  │  │Prometheus│  │   Loki   │  │  Jaeger  │  │ Grafana  │      │    │  │
-│  │  │  │ (Metrics)│  │  (Logs)  │  │ (Traces) │  │ (Visual) │      │    │  │
-│  │  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘      │    │  │
-│  │  └─────────────────────────────────────────────────────────────┘    │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-│                                                                           │
-└─────────────────────────────────────────────────────────────────────────┘
-```
 
 ## File Summary
 
-### Infrastructure (Terraform)
-- `deploy/terraform/main.tf` - AWS infrastructure configuration
-- `deploy/terraform/modules/vpc/main.tf` - VPC module
-- `deploy/terraform/user_data.sh` - EC2 initialization
-
-### Containerization (Docker)
-- `deploy/docker/Dockerfile` - Production Dockerfile
-- `deploy/docker/docker-compose.yml` - Local development stack
-
-### Kubernetes
-- `deploy/kubernetes/servant-guild.yaml` - K8s manifests
-- `deploy/helm/Chart.yaml` - Helm chart
-- `deploy/helm/values.yaml` - Configurable values
+### Deployment (Linux Native)
+- `deploy/systemd/servant-guild.service` - Systemd service unit
+- `deploy/scripts/install.sh` - Installation script
+- `deploy/scripts/uninstall.sh` - Uninstallation script
 
 ### Observability
-- `deploy/observability/loki/loki-config.yaml` - Loki config
-- `deploy/observability/promtail/config.yml` - Promtail config
-- `deploy/observability/prometheus/prometheus.yml` - Prometheus config
-- `deploy/observability/prometheus/rules/alerts.yml` - Alert rules
-- `deploy/observability/opentelemetry/otel-config.yaml` - OTel config
+- `deploy/observability/prometheus/prometheus.yml`
+- `deploy/observability/prometheus/rules/alerts.yml`
+- `deploy/observability/opentelemetry/otel-config.yaml`
 
-### Economic Model (Rust)
-- `src/economic/mod.rs` - Main module
-- `src/economic/budget.rs` - Budget management
-- `src/economic/tracker.rs` - Token tracking
-- `src/economic/pricing.rs` - Pricing engine
-- `src/economic/optimizer.rs` - Token optimization
-- `src/economic/metrics.rs` - Economic metrics
-- `src/economic/provider.rs` - Provider selection
-- `src/economic/cache.rs` - Token cache
+### Security
+- `src/security/network.rs`
+- `src/security/secrets.rs`
+- `src/security/encryption.rs`
+- `src/security/policy.rs`
 
-### Security Hardening (Rust)
-- `src/security/mod.rs` - Main module
-- `src/security/audit.rs` - Audit logging
-- `src/security/secrets.rs` - Secrets management
-- `src/security/encryption.rs` - Encryption utilities
-- `src/security/network.rs` - Network isolation
-- `src/security/validation.rs` - Input validation
+### Economic
+- `src/economic/mod.rs`
+- `src/economic/budget.rs`
+- `src/economic/tracker.rs`
+- `src/economic/pricing.rs`
 
-### CI/CD
-- `.github/workflows/ci-cd.yml` - Complete pipeline
+## Verification Commands
 
-### Documentation
-- `PHASE4.md` - Phase 4 documentation
-- `CHANGELOG.md` - Updated changelog
+```bash
+# 验证编译
+cargo build --release
 
-## Next Steps
+# 运行测试
+cargo test
 
-1. **Deploy to Staging**
-   - Run `terraform init && terraform apply` to provision infrastructure
-   - Deploy to staging environment for integration testing
-   - Verify all observability systems are functioning
+# 安装服务
+sudo ./deploy/scripts/install.sh
 
-2. **Production Deployment**
-   - Complete security audit
-   - Configure production secrets
-   - Execute canary deployment
+# 检查状态
+sudo systemctl status servant-guild
+```
 
-3. **Monitoring**
-   - Set up Grafana dashboards
-   - Configure alert notifications
-   - Establish on-call procedures
-
-## Notes
-
-- **Rust Version**: Requires Rust 1.87+ as specified in `rust-version` in Cargo.toml
-- **Dependencies**: All required dependencies have been added to Cargo.toml:
-  - `aes-gcm` for encryption
-  - `html-escape` for input validation
-- **Module Integration**: All new modules are properly exported in `src/lib.rs`
+> **Note**: 架构已预留多系统兼容能力。Windows Service / macOS Launchd 支持在后续迭代中添加。

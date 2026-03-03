@@ -1,0 +1,34 @@
+[Unit]
+Description=ServantGuild Daemon - Multi-Agent Autonomy System
+Documentation=https://github.com/hanxueyuan/servant-guild
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=servant-guild
+Group=servant-guild
+WorkingDirectory=/opt/servant-guild
+ExecStart=/opt/servant-guild/bin/servant-guild daemon
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=30s
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/servant-guild /var/log/servant-guild
+ReadOnlyPaths=/etc
+
+# Environment
+Environment="RUST_LOG=info"
+Environment="SERVANT_GUILD_CONFIG=/etc/servant-guild/config.toml"
+
+[Install]
+WantedBy=multi-user.target

@@ -101,7 +101,72 @@
 5.  **联络通道 (Red Phone)**:
     *   Telegram/Discord Bot 用于紧急汇报与人工干预。
 
-## 5. 实施路线图
+## 5. 跨平台支持 (Cross-Platform Support)
+
+ServantGuild 设计为在主流操作系统上无缝运行，确保开发者和运维人员的一致体验。
+
+### 5.1 支持的平台
+
+| 平台 | 支持级别 | 测试覆盖 | 部署方式 |
+|------|----------|----------|----------|
+| **Linux** | 完全支持 (Primary) | CI 必过 | Docker, Kubernetes, Systemd |
+| **Windows** | 完全支持 | CI 必过 | Docker, Windows Service |
+| **macOS** | 开发支持 | CI 必过 | Docker, Launchd |
+
+### 5.2 平台适配策略
+
+#### 文件系统
+- **路径处理**: 统一使用 Rust `std::path::PathBuf`，禁止硬编码路径分隔符
+- **权限模型**: 
+  - Linux/macOS: 标准 Unix 权限位 (`chmod`)
+  - Windows: ACL (Access Control List)
+- **默认目录**:
+  - Linux: `/opt/servant-guild/`, `~/.config/servant-guild/`
+  - Windows: `%ProgramFiles%\ServantGuild\`, `%APPDATA%\ServantGuild\`
+  - macOS: `/usr/local/opt/servant-guild/`, `~/Library/Application Support/ServantGuild/`
+
+#### 进程管理
+- **Linux**: Systemd 服务 (`servant-guild.service`)
+- **Windows**: Windows Service (`ServantGuildService`)
+- **macOS**: Launchd (`com.servantguild.daemon.plist`)
+
+#### Shell 与命令执行
+- 所有 Shell 命令通过 `src/tools/shell.rs` 跨平台适配层执行
+- 自动检测运行平台并选择合适的命令解释器：
+  - Linux/macOS: `/bin/sh`
+  - Windows: `cmd.exe` / `powershell.exe`
+
+### 5.3 构建与发布
+
+```bash
+# Linux (x86_64)
+cargo build --release --target x86_64-unknown-linux-gnu
+
+# Windows (x86_64)
+cargo build --release --target x86_64-pc-windows-msvc
+
+# macOS (Universal)
+cargo build --release --target aarch64-apple-darwin
+cargo build --release --target x86_64-apple-darwin
+```
+
+### 5.4 CI/CD 跨平台矩阵
+
+```yaml
+# .github/workflows/ci.yml
+strategy:
+  matrix:
+    os: [ubuntu-latest, windows-latest, macos-latest]
+    include:
+      - os: ubuntu-latest
+        target: x86_64-unknown-linux-gnu
+      - os: windows-latest
+        target: x86_64-pc-windows-msvc
+      - os: macos-latest
+        target: aarch64-apple-darwin
+```
+
+## 6. 实施路线图
 
 1.  **Phase 1: 原型 (Genesis)**
     *   在 ZeroClaw 中集成 Wasmtime 宿主。
