@@ -2,6 +2,18 @@
 
 This guide explains how to create, build, and deploy a Wasm Servant for the ServantGuild runtime.
 
+## Overview
+
+From the [Whitepaper v1.1](../design/servant_guild_whitepaper_v1.1.md):
+
+> **安全隔离 (Isolation)**: 每个使魔运行在独立的 Wasm 沙盒中，互不干扰，热替换无重启。
+
+Each servant runs in its own Wasm sandbox with:
+- **Memory limit**: 512MB per instance
+- **CPU fuel**: 5s max per call
+- **File system**: Pre-opened directories only
+- **Network**: Whitelisted domains only
+
 ## 1. Prerequisites
 
 - **Rust**: Latest stable toolchain.
@@ -41,8 +53,8 @@ We use the `servant-sdk` to simplify development.
         fn handle_task(task_id: String, input: String) -> Result<String, String> {
             // Your logic here
             // Call host capabilities:
-            // servant_sdk::zeroclaw::host::llm::chat(...)
-            // servant_sdk::zeroclaw::host::tools::execute(...)
+            // servant_sdk::servant_guild::host::llm::chat(...)
+            // servant_sdk::servant_guild::host::tools::execute(...)
             
             Ok(format!("MyRole completed task {}", task_id))
         }
@@ -72,18 +84,18 @@ The resulting binary will be at:
 
 The `servant-sdk` exposes the following host capabilities defined in `wit/host.wit`:
 
-- **LLM**: `zeroclaw::host::llm`
+- **LLM**: `servant_guild::host::llm`
     - `chat(req)`: Generate text/tool calls.
     - `embed(req)`: Generate embeddings.
-- **Tools**: `zeroclaw::host::tools`
+- **Tools**: `servant_guild::host::tools`
     - `execute(name, args)`: Run a host tool (safe).
     - `list()`: List available tools.
-- **Safety**: `zeroclaw::host::safety`
+- **Safety**: `servant_guild::host::safety`
     - `audit_log(action, resource, ...)`: Log security events.
-- **Consensus**: `zeroclaw::host::consensus`
+- **Consensus**: `servant_guild::host::consensus`
     - `propose(...)`: Create a proposal.
     - `vote(...)`: Vote on a proposal.
-- **Memory**: `zeroclaw::host::memory`
+- **Memory**: `servant_guild::host::memory`
     - `get/set/delete`: KV store.
     - `search`: Vector store.
 
@@ -91,4 +103,4 @@ The `servant-sdk` exposes the following host capabilities defined in `wit/host.w
 
 You can unit test your logic by extracting it into functions that don't depend on the host bindings, or by mocking the host bindings (advanced).
 
-For integration testing, use the `zeroclaw` CLI (Host) to load your servant.
+For integration testing, use the `servant_guild` CLI (Host) to load your servant.

@@ -1,34 +1,186 @@
-# ZeroClaw Commands Reference
+# ServantGuild Commands Reference
 
-This reference is derived from the current CLI surface (`zeroclaw --help`).
+This reference is derived from the current CLI surface.
 
-Last verified: **February 21, 2026**.
+**Last verified**: February 27, 2026
+**Architecture**: [Whitepaper v1.1](./design/servant_guild_whitepaper_v1.1.md)
 
 ## Top-Level Commands
 
 | Command | Purpose |
 |---|---|
-| `onboard` | Initialize workspace/config quickly or interactively |
-| `agent` | Run interactive chat or single-message mode |
-| `gateway` | Start webhook and WhatsApp HTTP gateway |
-| `daemon` | Start supervised runtime (gateway + channels + optional heartbeat/scheduler) |
-| `service` | Manage user-level OS service lifecycle |
-| `doctor` | Run diagnostics and freshness checks |
-| `status` | Print current configuration and system summary |
-| `estop` | Engage/resume emergency stop levels and inspect estop state |
-| `cron` | Manage scheduled tasks |
-| `models` | Refresh provider model catalogs |
-| `providers` | List provider IDs, aliases, and active provider |
-| `channel` | Manage channels and channel health checks |
-| `integrations` | Inspect integration details |
-| `skills` | List/install/remove skills |
-| `migrate` | Import from external runtimes (currently OpenClaw) |
+| `init` | Initialize workspace/config for ServantGuild |
+| `daemon` | Start the Master Daemon (Wasm runtime + all servants) |
+| `status` | Print current guild status and servant summary |
+| `task` | Submit and manage tasks for the guild |
+| `proposal` | Create and manage proposals for consensus |
+| `vote` | Cast votes on active proposals |
+| `evolve` | Trigger self-evolution workflow |
+| `servant` | Manage servant instances |
+| `estop` | Emergency stop (The Red Phone) |
+| `doctor` | Run diagnostics and health checks |
 | `config` | Export machine-readable config schema |
-| `completions` | Generate shell completion scripts to stdout |
-| `hardware` | Discover and introspect USB hardware |
-| `peripheral` | Configure and flash peripherals |
+| `completions` | Generate shell completion scripts |
 
-## Command Groups
+## Guild Management Commands
+
+### `init`
+
+Initialize ServantGuild workspace:
+
+```bash
+servant-guild init
+servant-guild init --interactive
+servant-guild init --admin-user <TELEGRAM_ID>
+```
+
+### `daemon`
+
+Start the Master Daemon:
+
+```bash
+servant-guild daemon
+servant-guild daemon --port 5000
+servant-guild daemon --config /path/to/config.toml
+```
+
+The daemon manages:
+- Wasmtime runtime for all servants
+- Consensus Engine
+- Message routing between servants
+- External gateway (API/CLI)
+
+### `status`
+
+Show guild status:
+
+```bash
+servant-guild status
+```
+
+Output includes:
+- Active servants and their status
+- Active proposals and votes
+- Resource usage (memory, CPU, tokens)
+- Last heartbeat timestamps
+
+## Task Commands
+
+### `task`
+
+Submit and manage tasks:
+
+```bash
+# Submit a new task
+servant-guild task submit --type build --payload '{"module": "coordinator"}'
+
+# List active tasks
+servant-guild task list
+
+# Get task status
+servant-guild task status <task-id>
+
+# Cancel a task
+servant-guild task cancel <task-id>
+```
+
+## Consensus Commands
+
+### `proposal`
+
+Create and manage proposals:
+
+```bash
+# Create a proposal (triggers voting)
+servant-guild proposal create --title "Update Worker to v2.0" \
+    --type critical \
+    --description "Performance improvements for Worker"
+
+# List proposals
+servant-guild proposal list
+
+# Get proposal details
+servant-guild proposal show <proposal-id>
+```
+
+### `vote`
+
+Cast votes:
+
+```bash
+# Vote on a proposal
+servant-guild vote <proposal-id> --approve --reason "LGTM"
+
+# Vote against
+servant-guild vote <proposal-id> --reject --reason "Need more testing"
+
+# Abstain
+servant-guild vote <proposal-id> --abstain
+```
+
+## Evolution Commands
+
+### `evolve`
+
+Trigger self-evolution workflow:
+
+```bash
+# Check for updates
+servant-guild evolve check
+
+# Trigger evolution manually
+servant-guild evolve trigger --reason "Performance improvement"
+
+# View evolution history
+servant-guild evolve history
+```
+
+From the Whitepaper:
+> **进化 (Evolution)**: 通过 GitHub 仓库作为基因库，使魔团能够编写、测试、发布自己的新版本。
+
+## Servant Commands
+
+### `servant`
+
+Manage servant instances:
+
+```bash
+# List all servants
+servant-guild servant list
+
+# Get servant status
+servant-guild servant status <servant-id>
+
+# Create ephemeral servant (requires consensus)
+servant-guild servant create --role worker --ttl 3600
+
+# Destroy servant (requires consensus)
+servant-guild servant destroy <servant-id>
+```
+
+## Emergency Commands
+
+### `estop` (The Red Phone)
+
+Emergency stop commands:
+
+```bash
+# Engage emergency stop (kills all servants)
+servant-guild estop
+
+# Stop specific servant
+servant-guild estop --servant <servant-id>
+
+# Resume from estop
+servant-guild estop resume
+```
+
+From the [Infrastructure doc](./design/servant_guild_infrastructure.md):
+> **紧急联络通道 (The Red Phone)**: 当自治系统失控时的最后一道防线。
+
+---
+
+## Legacy Commands (Backward Compatibility)
 
 ### `onboard`
 

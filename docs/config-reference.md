@@ -1,24 +1,123 @@
-# ZeroClaw Config Reference (Operator-Oriented)
+# ServantGuild Config Reference
 
-This is a high-signal reference for common config sections and defaults.
+This is a high-signal reference for common config sections and defaults for ServantGuild.
 
-Last verified: **February 21, 2026**.
+**Last verified**: February 27, 2026
+**Architecture**: [Whitepaper v1.1](./design/servant_guild_whitepaper_v1.1.md)
 
 Config path resolution at startup:
 
-1. `ZEROCLAW_WORKSPACE` override (if set)
-2. persisted `~/.zeroclaw/active_workspace.toml` marker (if present)
-3. default `~/.zeroclaw/config.toml`
+1. `SERVANT_GUILD_WORKSPACE` override (if set)
+2. persisted `~/.servant-guild/active_workspace.toml` marker (if present)
+3. default `~/.servant-guild/config.toml`
 
-ZeroClaw logs the resolved config on startup at `INFO` level:
+ServantGuild logs the resolved config on startup at `INFO` level.
 
-- `Config loaded` with fields: `path`, `workspace`, `source`, `initialized`
+## Guild Core Configuration
 
-Schema export command:
+### `[guild]`
 
-- `zeroclaw config schema` (prints JSON Schema draft 2020-12 to stdout)
+| Key | Default | Notes |
+|---|---|---|
+| `name` | `ServantGuild-Alpha` | Guild name for identification |
+| `version` | `0.4.0` | Current system version |
+| `admin_user` | _required_ | Owner's Telegram/User ID for The Red Phone |
 
-## Core Keys
+```toml
+[guild]
+name = "ServantGuild-Alpha"
+admin_user = "your_telegram_id"
+```
+
+### `[consensus]`
+
+From the Whitepaper:
+> **共识驱动 (Consensus-Driven)**: 所有关键决策需经多数同意，保障集体生存利益。
+
+| Key | Default | Notes |
+|---|---|---|
+| `core_servants_count` | `5` | Number of core servants (must be odd) |
+| `normal_quorum` | `3` | Votes needed for normal decisions (3/5) |
+| `critical_quorum` | `5` | Votes needed for critical decisions (5/5) |
+| `voting_timeout_secs` | `3600` | Voting timeout (1 hour) |
+| `owner_veto_enabled` | `true` | Owner can veto any proposal |
+
+```toml
+[consensus]
+core_servants_count = 5
+normal_quorum = 3
+critical_quorum = 5
+voting_timeout_secs = 3600
+owner_veto_enabled = true
+```
+
+### `[servants.<role>]`
+
+Configuration for each of the 5 core servants:
+
+```toml
+[servants.coordinator]
+enabled = true
+
+[servants.worker]
+enabled = true
+workspace = "/workspace/worker"
+
+[servants.warden]
+enabled = true
+audit_enabled = true
+max_auto_risk_level = 5
+
+[servants.speaker]
+enabled = true
+alert_channels = ["telegram", "slack"]
+
+[servants.contractor]
+enabled = true
+github_integration = true
+```
+
+### `[evolution]`
+
+From the Whitepaper:
+> **进化 (Evolution)**: 通过 GitHub 仓库作为基因库，使魔团能够编写、测试、发布自己的新版本。
+
+| Key | Default | Notes |
+|---|---|---|
+| `auto_evolve` | `false` | Enable autonomous evolution |
+| `require_human_approval` | `true` | Require owner approval for changes |
+| `enable_canary` | `true` | Use canary deployment for updates |
+| `high_risk_threshold` | `70` | Risk score threshold for human review |
+
+```toml
+[evolution]
+auto_evolve = false
+require_human_approval = true
+enable_canary = true
+high_risk_threshold = 70
+```
+
+### `[budget]`
+
+From the [Infrastructure doc](./design/servant_guild_infrastructure.md):
+> **经费管理**: 每个使魔有独立 Token 配额，余额不足时暂停活动并通知 Speaker。
+
+| Key | Default | Notes |
+|---|---|---|
+| `daily_limit_tokens` | `1000000` | Daily token limit |
+| `warning_threshold` | `0.8` | Warn at 80% usage |
+| `critical_threshold` | `0.95` | Alert at 95% usage |
+
+```toml
+[budget]
+daily_limit_tokens = 1000000
+warning_threshold = 0.8
+critical_threshold = 0.95
+```
+
+---
+
+## Runtime Configuration
 
 | Key | Default | Notes |
 |---|---|---|

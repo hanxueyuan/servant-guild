@@ -1,15 +1,20 @@
-# Warden API Reference
+# Warden (监工使魔) API Reference
 
 ## Overview
 
-The Warden is the "guardian" of the guild, responsible for:
+The Warden is the **"guardian" of the guild** (监工使魔), responsible for:
+
+From the [Whitepaper v1.1](../design/servant_guild_whitepaper_v1.1.md):
+> **职责**: 安全审计，性能监控，新版本集体验证。
+
 - Auditing all operations for safety
 - Enforcing security policies
 - Managing snapshots and rollback points
 - Validating tool execution requests
 - Monitoring for suspicious activity
+- Cross-validating updated servants during evolution
 
-The Warden implements the **Prudent Agency** framework, ensuring all operations are safe, audited, and reversible.
+The Warden implements the **Prudent Agency** framework from [AGENTS.md](../../AGENTS.md), ensuring all operations are safe, audited, and reversible.
 
 ## Table of Contents
 

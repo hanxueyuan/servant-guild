@@ -1,11 +1,11 @@
-# AGENTS.md — ZeroClaw 智能体工程协议
+# AGENTS.md — ServantGuild 智能体工程协议
 
 本文档定义了本仓库中编码智能体的默认工作协议。
 范围：整个仓库。https://github.com/hanxueyuan/servant-guild.git
 
 ## 1) 项目快照（必读）
 
-ZeroClaw 是一个 Rust 优先的自主智能体运行时，正全面向 **“使魔团” (ServantGuild)** 架构演进，优化目标为：
+ServantGuild 是一个 Rust 优先的自主智能体运行时，实现了 **“使魔团” (ServantGuild)** 架构，核心哲学为：
 
 - **自治 (Autonomy)**：具备自我检测、自我决策、自我更新的能力。
 - **集体决策 (Consensus)**：重大变更（如代码更新、成员扩缩）需通过全团投票。

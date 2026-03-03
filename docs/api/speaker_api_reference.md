@@ -1,16 +1,19 @@
-# Speaker API Reference
+# Speaker (议长使魔) API Reference
 
 ## Overview
 
-The Speaker is the "voice" of the guild, responsible for:
-- Managing proposals and voting
+The Speaker is the **"voice" of the guild** (议长使魔), responsible for:
+
+From the [Whitepaper v1.1](../design/servant_guild_whitepaper_v1.1.md):
+> **职责**: 组织团议，收集投票，统计共识。
+
+- Managing proposals and voting through the Consensus Engine
 - Facilitating communication between servants
-- Building consensus on decisions
+- Building consensus on decisions (Normal: 3/5, Critical: 5/5)
 - Maintaining the guild's "voice" (LLM interactions)
 - Coordinating discussions
 - Broadcasting notifications through multiple channels
-
-The Speaker implements a multi-channel notification system supporting Console, Logs, External Webhooks, and Servant-to-Servant messaging.
+- Reporting major decisions to owner (via The Red Phone)
 
 ## Table of Contents
 

@@ -1,13 +1,17 @@
-# Coordinator API Reference
+# Coordinator (枢机团长) API Reference
 
 ## Overview
 
-The Coordinator is the "brain" of the guild, responsible for:
-- Receiving and parsing user requests
+The Coordinator is the **"brain" of the guild** (枢机团长), responsible for:
+
+From the [Whitepaper v1.1](../design/servant_guild_whitepaper_v1.1.md):
+> **职责**: 主人沟通接口，任务分发，状态汇报。
+
+- Receiving and parsing owner requests
 - Breaking down complex tasks into sub-tasks
 - Distributing work to appropriate servants
 - Tracking task progress and dependencies
-- Aggregating results
+- Aggregating results and reporting to owner
 
 ## Table of Contents
 

@@ -1,8 +1,17 @@
-# Worker Servant API Reference
+# Worker (执行使魔) API Reference
 
 ## Overview
 
-The Worker servant is the "hands" of the ServantGuild, responsible for executing tools and operations. It provides a comprehensive set of Host Tools for file system operations, command execution, network requests, and code analysis.
+The Worker is the **"hands" of the guild** (执行使魔), responsible for:
+
+From the [Whitepaper v1.1](../design/servant_guild_whitepaper_v1.1.md):
+> **职责**: 核心干活角色，代码编写、工具调用。
+
+The Worker provides a comprehensive set of Host Tools for:
+- File system operations
+- Command execution
+- Network requests
+- Code analysis and modification
 
 ## Table of Contents
 

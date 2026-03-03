@@ -4,6 +4,14 @@
 
 本指南提供 ServantGuild 系统在生产环境中的部署步骤和最佳实践。
 
+基于 [ServantGuild 基础设施需求](./design/servant_guild_infrastructure.md)，部署需要满足五大核心基础设施：
+
+1. **宿主环境 (The Sanctuary)** - 7x24h 运行环境
+2. **经费与密钥 (The Treasury)** - API Keys 和认证凭据
+3. **记忆与知识库 (The Library)** - 数据存储
+4. **感知与执行触手 (The Tentacles)** - 网络和工具
+5. **紧急联络通道 (The Red Phone)** - 告警和干预通道
+
 ## 前置条件
 
 - AWS 账户（具有管理员权限）

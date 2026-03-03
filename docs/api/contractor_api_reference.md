@@ -1,13 +1,18 @@
-# Contractor API Reference
+# Contractor (契约使魔) API Reference
 
 ## Overview
 
-The Contractor is the "builder" of the guild, responsible for:
-- Managing resources and configurations
+The Contractor is the **"builder" of the guild** (契约使魔), responsible for:
+
+From the [Whitepaper v1.1](../design/servant_guild_whitepaper_v1.1.md):
+> **职责**: 使魔创建、销毁、配置管理、版本发布。
+
+- Managing servant lifecycle (create, destroy, configure)
 - Handling deployments and scaling
-- Managing external service integrations
+- Managing external service integrations (GitHub as Gene Pool)
 - Maintaining system health
-- Environment and secrets management
+- Environment and secrets management (The Treasury)
+- Publishing GitHub Releases for self-evolution
 
 The Contractor provides complete lifecycle management for resources (Create, Start, Stop, Destroy) and tracks usage statistics for all managed resources.
 
