@@ -11,6 +11,13 @@
 <p align="center">
   <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache%202.0-blue.svg" alt="License: MIT OR Apache-2.0" /></a>
   <a href="NOTICE"><img src="https://img.shields.io/badge/contributors-27+-green.svg" alt="Contributors" /></a>
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-informational" alt="Platform: Linux | Windows | macOS" />
+  <img src="https://img.shields.io/badge/arch-x86__64%20%7C%20ARM64%20%7C%20ARMv7-success" alt="Architecture: x86_64 | ARM64 | ARMv7" />
+</p>
+
+<p align="center">
+  <strong>🌐 跨平台支持</strong><br>
+  <a href="#linux-安装">Linux</a> • <a href="#windows-安装">Windows</a> • <a href="#macos-安装">macOS</a>
 </p>
 
 <p align="center">
@@ -80,6 +87,207 @@
 | **向量数据库** | pgvector |
 | **嵌入式存储** | Sled |
 | **LLM 提供商** | 豆包 / DeepSeek / OpenAI / Anthropic |
+
+## 跨平台支持
+
+ServantGuild 支持所有主流操作系统：
+
+| 平台 | 架构 | 状态 | 说明 |
+|------|------|------|------|
+| **Linux** | x86_64, ARM64, ARMv7 | ✅ 主要支持 | 在 Ubuntu、Debian、Fedora、RHEL、Alpine 上测试通过 |
+| **Windows** | x86_64 | ✅ 支持 | 需要 Visual Studio Build Tools |
+| **macOS** | x86_64, ARM64 (M1/M2) | ✅ 支持 | 需要 Xcode Command Line Tools |
+
+### Linux 安装 {#linux-安装}
+
+<details>
+<summary><strong>Debian / Ubuntu</strong></summary>
+
+```bash
+# 安装构建工具
+sudo apt update
+sudo apt install -y build-essential pkg-config libgit2-dev
+
+# 安装 Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# 验证安装
+rustc --version
+cargo --version
+
+# 克隆并构建
+git clone https://github.com/hanxueyuan/servant-guild.git
+cd servant-guild
+cargo build --release
+```
+
+</details>
+
+<details>
+<summary><strong>Fedora / RHEL</strong></summary>
+
+```bash
+# 安装构建工具
+sudo dnf group install -y development-tools
+sudo dnf install -y pkg-config libgit2-devel
+
+# 安装 Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# 验证安装
+rustc --version
+cargo --version
+
+# 克隆并构建
+git clone https://github.com/hanxueyuan/servant-guild.git
+cd servant-guild
+cargo build --release
+```
+
+</details>
+
+<details>
+<summary><strong>Alpine Linux</strong></summary>
+
+```bash
+# 安装构建工具
+apk add --no-cache build-base pkgconfig git libgit2-dev openssl-dev
+
+# 安装 Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# 验证安装
+rustc --version
+cargo --version
+
+# 克隆并构建
+git clone https://github.com/hanxueyuan/servant-guild.git
+cd servant-guild
+cargo build --release --target x86_64-unknown-linux-musl
+```
+
+</details>
+
+### Windows 安装 {#windows-安装}
+
+<details>
+<summary><strong>Windows 10/11 安装步骤</strong></summary>
+
+#### 步骤 1: 安装 Visual Studio Build Tools
+
+```powershell
+# 使用 winget（推荐）
+winget install Microsoft.VisualStudio.2022.BuildTools
+
+# 或从以下地址下载：
+# https://visualstudio.microsoft.com/visual-cpp-build-tools/
+```
+
+安装时选择 **"Desktop development with C++"** 工作负载。
+
+#### 步骤 2: 安装 Rust
+
+```powershell
+# 使用 winget
+winget install Rustlang.Rustup
+
+# 或从以下地址下载：
+# https://rustup.rs/
+```
+
+安装后打开新终端验证：
+
+```powershell
+rustc --version
+cargo --version
+```
+
+#### 步骤 3: 安装 Git
+
+```powershell
+winget install Git.Git
+```
+
+#### 步骤 4: 克隆并构建
+
+```powershell
+# 克隆仓库
+git clone https://github.com/hanxueyuan/servant-guild.git
+cd servant-guild
+
+# 构建项目
+cargo build --release
+
+# 运行
+.\target\release\servant-guild.exe --help
+```
+
+</details>
+
+<details>
+<summary><strong>PowerShell 环境配置</strong></summary>
+
+将 ServantGuild 添加到 PATH：
+
+```powershell
+# 添加到用户 PATH（持久化）
+[Environment]::SetEnvironmentVariable(
+    "Path",
+    [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:USERPROFILE\.cargo\bin",
+    "User"
+)
+
+# 重新加载当前会话
+$env:Path = [Environment]::GetEnvironmentVariable("Path", "User") + ";" + [Environment]::GetEnvironmentVariable("Path", "Machine")
+```
+
+生成 PowerShell 补全脚本：
+
+```powershell
+servant-guild completions powershell | Out-File -Encoding UTF8 $HOME\Documents\PowerShell\servant-guild.ps1
+```
+
+</details>
+
+### macOS 安装 {#macos-安装}
+
+<details>
+<summary><strong>macOS 安装步骤</strong></summary>
+
+#### 步骤 1: 安装 Xcode Command Line Tools
+
+```bash
+xcode-select --install
+```
+
+#### 步骤 2: 安装 Rust
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+```
+
+#### 步骤 3: 安装 Homebrew（可选，用于依赖）
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 安装 libgit2（用于 GitHub 集成）
+brew install libgit2
+```
+
+#### 步骤 4: 克隆并构建
+
+```bash
+git clone https://github.com/hanxueyuan/servant-guild.git
+cd servant-guild
+cargo build --release
+```
+
+</details>
 
 ## 快速开始
 

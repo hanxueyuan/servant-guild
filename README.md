@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="zeroclaw.png" alt="ZeroClaw" width="200" />
+  <img src="servant-guild.png" alt="ServantGuild" width="200" />
 </p>
 
-<h1 align="center">ServantGuild (formerly ZeroClaw) 🦀</h1>
+<h1 align="center">ServantGuild 🦀</h1>
 
 <p align="center">
   <strong>Zero overhead. Zero compromise. 100% Rust. 100% Agnostic.</strong><br>
@@ -12,16 +12,14 @@
 <p align="center">
   <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache%202.0-blue.svg" alt="License: MIT OR Apache-2.0" /></a>
   <a href="NOTICE"><img src="https://img.shields.io/badge/contributors-27+-green.svg" alt="Contributors" /></a>
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-informational" alt="Platform: Linux | Windows | macOS" />
+  <img src="https://img.shields.io/badge/arch-x86__64%20%7C%20ARM64%20%7C%20ARMv7-success" alt="Architecture: x86_64 | ARM64 | ARMv7" />
   <a href="https://github.com/hanxueyuan/servant-guild"><img src="https://img.shields.io/badge/GitHub-Repo-black.svg?style=flat&logo=github" alt="GitHub Repo" /></a>
-  <a href="https://x.com/zeroclawlabs?s=21"><img src="https://img.shields.io/badge/X-%40zeroclawlabs-000000?style=flat&logo=x&logoColor=white" alt="X: @zeroclawlabs" /></a>
-  <a href="https://zeroclawlabs.cn/group.jpg"><img src="https://img.shields.io/badge/WeChat-Group-B7D7A8?logo=wechat&logoColor=white" alt="WeChat Group" /></a>
-  <a href="https://www.xiaohongshu.com/user/profile/67cbfc43000000000d008307?xsec_token=AB73VnYnGNx5y36EtnnZfGmAmS-6Wzv8WMuGpfwfkg6Yc%3D&xsec_source=pc_search"><img src="https://img.shields.io/badge/Xiaohongshu-Official-FF2442?style=flat" alt="Xiaohongshu: Official" /></a>
-  <a href="https://t.me/zeroclawlabs"><img src="https://img.shields.io/badge/Telegram-%40zeroclawlabs-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram: @zeroclawlabs" /></a>
-  <a href="https://www.facebook.com/groups/zeroclaw"><img src="https://img.shields.io/badge/Facebook-Group-1877F2?style=flat&logo=facebook&logoColor=white" alt="Facebook Group" /></a>
-  <a href="https://www.reddit.com/r/zeroclawlabs/"><img src="https://img.shields.io/badge/Reddit-r%2Fzeroclawlabs-FF4500?style=flat&logo=reddit&logoColor=white" alt="Reddit: r/zeroclawlabs" /></a>
 </p>
+
 <p align="center">
-Built by students and members of the Harvard, MIT, and Sundai.Club communities.
+  <strong>🌐 Cross-Platform Support</strong><br>
+  <a href="#linux">Linux</a> • <a href="#windows">Windows</a> • <a href="#macos">macOS</a>
 </p>
 
 <p align="center">
@@ -199,8 +197,230 @@ Example sample (macOS arm64, measured on February 18, 2026):
 
 ## Prerequisites
 
+### Platform Support
+
+ServantGuild is designed to run on all major operating systems:
+
+| Platform | Architectures | Status | Notes |
+|----------|--------------|--------|-------|
+| **Linux** | x86_64, ARM64, ARMv7 | ✅ Primary | Tested on Ubuntu, Debian, Fedora, RHEL, Alpine |
+| **Windows** | x86_64 | ✅ Supported | Requires Visual Studio Build Tools |
+| **macOS** | x86_64, ARM64 (M1/M2) | ✅ Supported | Requires Xcode Command Line Tools |
+
+### Linux {#linux}
+
 <details>
-<summary><strong>Windows</strong></summary>
+<summary><strong>Debian / Ubuntu</strong></summary>
+
+```bash
+# Install build essentials
+sudo apt update
+sudo apt install -y build-essential pkg-config libgit2-dev
+
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# Verify installation
+rustc --version
+cargo --version
+
+# Clone and build
+git clone https://github.com/hanxueyuan/servant-guild.git
+cd servant-guild
+cargo build --release
+```
+
+</details>
+
+<details>
+<summary><strong>Fedora / RHEL</strong></summary>
+
+```bash
+# Install build essentials
+sudo dnf group install -y development-tools
+sudo dnf install -y pkg-config libgit2-devel
+
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# Verify installation
+rustc --version
+cargo --version
+
+# Clone and build
+git clone https://github.com/hanxueyuan/servant-guild.git
+cd servant-guild
+cargo build --release
+```
+
+</details>
+
+<details>
+<summary><strong>Alpine Linux</strong></summary>
+
+```bash
+# Install build essentials (run as root or with sudo)
+apk add --no-cache build-base pkgconfig git libgit2-dev openssl-dev
+
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# Verify installation
+rustc --version
+cargo --version
+
+# Clone and build
+git clone https://github.com/hanxueyuan/servant-guild.git
+cd servant-guild
+cargo build --release
+```
+
+> **Note:** On Alpine, you may need to use `musl` target: `cargo build --release --target x86_64-unknown-linux-musl`
+
+</details>
+
+### Windows {#windows}
+
+<details>
+<summary><strong>Windows 10/11 Setup</strong></summary>
+
+#### Step 1: Install Visual Studio Build Tools
+
+```powershell
+# Using winget (recommended)
+winget install Microsoft.VisualStudio.2022.BuildTools
+
+# Or download from:
+# https://visualstudio.microsoft.com/visual-cpp-build-tools/
+```
+
+During installation, select **"Desktop development with C++"** workload.
+
+#### Step 2: Install Rust
+
+```powershell
+# Using winget
+winget install Rustlang.Rustup
+
+# Or download from:
+# https://rustup.rs/
+```
+
+After installation, open a new terminal and verify:
+
+```powershell
+rustc --version
+cargo --version
+```
+
+#### Step 3: Install Git (if not already installed)
+
+```powershell
+winget install Git.Git
+```
+
+#### Step 4: Clone and Build
+
+```powershell
+# Clone the repository
+git clone https://github.com/hanxueyuan/servant-guild.git
+cd servant-guild
+
+# Build the project
+cargo build --release
+
+# Run
+.\target\release\servant-guild.exe --help
+```
+
+#### Optional: Docker Desktop
+
+If using Docker sandboxed runtime:
+
+```powershell
+winget install Docker.DockerDesktop
+```
+
+</details>
+
+<details>
+<summary><strong>Windows PowerShell Profile Setup</strong></summary>
+
+Add ServantGuild to your PATH:
+
+```powershell
+# Add to user PATH (persistent)
+[Environment]::SetEnvironmentVariable(
+    "Path",
+    [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:USERPROFILE\.cargo\bin",
+    "User"
+)
+
+# Reload current session
+$env:Path = [Environment]::GetEnvironmentVariable("Path", "User") + ";" + [Environment]::GetEnvironmentVariable("Path", "Machine")
+```
+
+Generate shell completions for PowerShell:
+
+```powershell
+servant-guild completions powershell | Out-File -Encoding UTF8 $HOME\Documents\PowerShell\servant-guild.ps1
+```
+
+</details>
+
+### macOS {#macos}
+
+<details>
+<summary><strong>macOS Setup</strong></summary>
+
+#### Step 1: Install Xcode Command Line Tools
+
+```bash
+xcode-select --install
+```
+
+#### Step 2: Install Rust
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+```
+
+#### Step 3: Install Homebrew (optional, for dependencies)
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install libgit2 (required for GitHub integration)
+brew install libgit2
+```
+
+#### Step 4: Clone and Build
+
+```bash
+git clone https://github.com/hanxueyuan/servant-guild.git
+cd servant-guild
+cargo build --release
+```
+
+#### Alternative: Using Homebrew
+
+```bash
+brew tap hanxueyuan/servant-guild
+brew install servant-guild
+```
+
+</details>
+
+---
+
+## Detailed Prerequisites by Platform
+
+<details>
+<summary><strong>Windows (Detailed)</strong></summary>
 
 #### Required
 
@@ -233,7 +453,7 @@ Example sample (macOS arm64, measured on February 18, 2026):
 </details>
 
 <details>
-<summary><strong>Linux / macOS</strong></summary>
+<summary><strong>Linux / macOS (Detailed)</strong></summary>
 
 #### Required
 

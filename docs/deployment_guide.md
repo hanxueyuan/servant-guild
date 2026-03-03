@@ -12,15 +12,224 @@
 4. **感知与执行触手 (The Tentacles)** - 网络和工具
 5. **紧急联络通道 (The Red Phone)** - 告警和干预通道
 
+## 平台支持
+
+| 平台 | 架构 | 部署方式 | 推荐场景 |
+|------|------|----------|----------|
+| **Linux** | x86_64, ARM64, ARMv7 | Docker, Kubernetes, Systemd | 生产环境、云服务器 |
+| **Windows** | x86_64 | Docker, Windows Service | 开发测试、企业环境 |
+| **macOS** | x86_64, ARM64 | Docker, Launchd | 开发测试、个人使用 |
+
 ## 前置条件
 
-- AWS 账户（具有管理员权限）
-- Docker 和 Docker Compose
-- kubectl 和 Helm
-- Terraform >= 1.0
-- Rust 1.87+
+### 通用前置条件
 
-## 1. 本地开发环境
+- Docker 和 Docker Compose（可选但推荐）
+- Rust 1.87+（从源码构建时需要）
+- PostgreSQL 15+
+- Redis 7+
+
+### Linux 前置条件
+
+```bash
+# Debian/Ubuntu
+sudo apt update
+sudo apt install -y build-essential pkg-config libgit2-dev docker.io docker-compose
+
+# Fedora/RHEL
+sudo dnf install -y build-essential pkg-config libgit2-devel docker docker-compose
+
+# 启动 Docker
+sudo systemctl enable --now docker
+```
+
+### Windows 前置条件
+
+```powershell
+# 安装 Docker Desktop
+winget install Docker.DockerDesktop
+
+# 安装 Visual Studio Build Tools（用于源码构建）
+winget install Microsoft.VisualStudio.2022.BuildTools
+# 选择 "Desktop development with C++" 工作负载
+
+# 安装 Rust（用于源码构建）
+winget install Rustlang.Rustup
+```
+
+### macOS 前置条件
+
+```bash
+# 安装 Docker Desktop
+brew install --cask docker
+
+# 安装构建依赖
+brew install libgit2
+
+# 安装 Rust（用于源码构建）
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+## 部署选项
+
+### 选项 A: Docker 部署（推荐）
+
+适用于所有平台（Linux, Windows, macOS）。
+
+### 选项 B: Kubernetes 部署
+
+适用于生产环境，支持 Linux 节点。
+
+### 选项 C: 系统服务部署
+
+- **Linux**: Systemd 服务
+- **Windows**: Windows Service
+- **macOS**: Launchd
+
+---
+
+## 1. Docker 部署（跨平台）
+
+### 1.1 使用 Docker Compose
+
+```bash
+# Linux/macOS
+cd deploy/docker
+docker-compose up -d
+
+# Windows PowerShell
+cd deploy\docker
+docker-compose up -d
+```
+
+这将启动:
+- PostgreSQL (端口 5432)
+- Redis (端口 6379)
+- Prometheus (端口 9090)
+- Grafana (端口 3000)
+- Loki (端口 3100)
+- ServantGuild (端口 5000)
+
+### 1.2 单容器部署
+
+```bash
+# 构建镜像
+docker build -t servant-guild:latest -f deploy/docker/Dockerfile .
+
+# 运行容器
+docker run -d \
+  --name servant-guild \
+  -p 5000:5000 \
+  -e DATABASE_URL=postgres://user:pass@host:5432/servant_guild \
+  -e REDIS_URL=redis://host:6379 \
+  -v servant-guild-data:/data \
+  servant-guild:latest
+```
+
+### 1.3 Windows 容器部署
+
+```powershell
+# 构建镜像
+docker build -t servant-guild:latest -f deploy\docker\Dockerfile .
+
+# 运行容器
+docker run -d `
+  --name servant-guild `
+  -p 5000:5000 `
+  -e DATABASE_URL="postgres://user:pass@host:5432/servant_guild" `
+  -e REDIS_URL="redis://host:6379" `
+  -v servant-guild-data:/data `
+  servant-guild:latest
+```
+
+---
+
+## 2. 系统服务部署
+
+### 2.1 Linux (Systemd)
+
+创建 systemd 服务文件：
+
+```bash
+sudo tee /etc/systemd/system/servant-guild.service << EOF
+[Unit]
+Description=ServantGuild Daemon
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=simple
+User=servant-guild
+Group=servant-guild
+WorkingDirectory=/opt/servant-guild
+ExecStart=/opt/servant-guild/bin/servant-guild daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 启用并启动服务
+sudo systemctl daemon-reload
+sudo systemctl enable servant-guild
+sudo systemctl start servant-guild
+```
+
+### 2.2 Windows (Windows Service)
+
+使用 WinSW 或 NSSM 将 ServantGuild 注册为 Windows 服务：
+
+```powershell
+# 使用 NSSM 安装服务
+nssm install ServantGuild "C:\Program Files\ServantGuild\servant-guild.exe" "daemon"
+nssm start ServantGuild
+
+# 或使用 sc 命令
+sc create ServantGuild binPath= "C:\Program Files\ServantGuild\servant-guild.exe daemon" start= auto
+sc start ServantGuild
+```
+
+### 2.3 macOS (Launchd)
+
+创建 LaunchAgent 配置：
+
+```bash
+# 创建 plist 文件
+cat > ~/Library/LaunchAgents/com.servantguild.daemon.plist << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.servantguild.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/servant-guild</string>
+        <string>daemon</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+# 加载服务
+launchctl load ~/Library/LaunchAgents/com.servantguild.daemon.plist
+```
+
+---
+
+## 3. Kubernetes 部署（生产环境）
+
+### 3.1 前置条件
+
+- Kubernetes 集群（Linux 节点）
+- kubectl 和 Helm
+- 持久化存储支持
+
+### 3.2 使用 kubectl 部署
 
 ### 1.1 启动依赖服务
 

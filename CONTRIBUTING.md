@@ -25,9 +25,70 @@ If you get stuck, open a draft PR early and ask questions in the description.
 
 ## Development Setup
 
+### Platform-Specific Setup
+
+ServantGuild is designed to work on Linux, Windows, and macOS. Choose your platform:
+
+<details>
+<summary><strong>Linux</strong></summary>
+
+```bash
+# Debian/Ubuntu
+sudo apt update
+sudo apt install -y build-essential pkg-config libgit2-dev
+
+# Fedora/RHEL
+sudo dnf group install -y development-tools
+sudo dnf install -y pkg-config libgit2-devel
+
+# Alpine
+apk add --no-cache build-base pkgconfig git libgit2-dev openssl-dev
+```
+
+</details>
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+```powershell
+# Install Visual Studio Build Tools
+winget install Microsoft.VisualStudio.2022.BuildTools
+# Select "Desktop development with C++" workload
+
+# Install Rust
+winget install Rustlang.Rustup
+
+# Install Git
+winget install Git.Git
+
+# Verify
+rustc --version
+cargo --version
+```
+
+</details>
+
+<details>
+<summary><strong>macOS</strong></summary>
+
+```bash
+# Install Xcode Command Line Tools
+xcode-select --install
+
+# Install Homebrew (optional)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install dependencies
+brew install libgit2
+```
+
+</details>
+
+### Build and Test
+
 ```bash
 # Clone the repo
-git clone https://github.com/servant-guild-labs/servant-guild.git
+git clone https://github.com/hanxueyuan/servant-guild.git
 cd servant-guild
 
 # Enable the pre-push hook (runs fmt, clippy, tests before every push)
@@ -40,23 +101,30 @@ cargo build
 cargo test --locked
 
 # Format & lint (required before PR)
-./scripts/ci/rust_quality_gate.sh
-
-# Optional strict lint audit (full repo, recommended periodically)
-./scripts/ci/rust_quality_gate.sh --strict
-
-# Optional strict lint delta gate (blocks only changed Rust lines)
-./scripts/ci/rust_strict_delta_gate.sh
-
-# Optional docs lint gate (blocks only markdown issues on changed lines)
-./scripts/ci/docs_quality_gate.sh
-
-# Optional docs links gate (checks only links added on changed lines)
-./scripts/ci/docs_links_gate.sh
+cargo fmt --check
+cargo clippy -- -D warnings
 
 # Release build
 cargo build --release --locked
 ```
+
+### Cross-Platform Development Guidelines
+
+When contributing code that interacts with the operating system:
+
+1. **Use `std::path::PathBuf`** instead of string concatenation for paths
+2. **Avoid platform-specific shell commands** - use Rust APIs instead
+3. **Handle line endings**: Use `\n` internally, convert as needed for output
+4. **Use `cfg` attributes** for platform-specific code:
+   ```rust
+   #[cfg(target_os = "windows")]
+   fn platform_specific() { /* Windows code */ }
+   
+   #[cfg(not(target_os = "windows"))]
+   fn platform_specific() { /* Unix code */ }
+   ```
+5. **Test on multiple platforms** when modifying OS-related code
+6. **Use `dirs` crate** for user directories (home, config, cache)
 
 ### Pre-push hook
 
