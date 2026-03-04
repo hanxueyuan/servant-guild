@@ -1,8 +1,10 @@
 pub mod build;
 pub mod docker;
 pub mod error_analyzer;
+pub mod evolution;
 pub mod evolution_workflow;
 pub mod hot_swap;
+pub mod manager;
 pub mod native;
 pub mod rollback;
 pub mod sandbox;
@@ -29,12 +31,14 @@ pub use evolution::{
 pub use hot_swap::{
     HotSwap, HotSwapManager, ModuleMetadata, ModuleVersion, SwapResult, SwapStrategy,
 };
+pub use manager::RuntimeManager;
 pub use native::NativeRuntime;
 pub use rollback::{
     BackupConfig, RecoveryPlan, RecoveryStep, RecoveryStepType, RollbackManager, RollbackPoint,
     RollbackPointType, RollbackResult,
 };
 pub use sandbox::{BuildSandbox, SandboxConfig, SandboxManager, SandboxResult};
+pub use state_migration::{MigrationPlan, StateMigrator, StateSnapshot};
 pub use traits::RuntimeAdapter;
 pub use wasm::{WasmCapabilities, WasmRuntime};
 

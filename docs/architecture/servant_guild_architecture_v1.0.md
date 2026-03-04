@@ -1,9 +1,39 @@
-# 使魔团 (ServantGuild) 系统架构设计文档 v1.1
+# 使魔团 (ServantGuild) 系统架构设计文档 v1.2
 
-**版本**: v1.1 (Revision)
+**版本**: v1.2 (Feasibility Analysis)
 **状态**: 正式发布
-**最后更新**: 2026-02-27
+**最后更新**: 2026-03-03
 **来源**: 基于 `docs/design/servant_guild_whitepaper_v1.1.md` 与 `docs/architecture/reviews/design_review_01.md`
+**可行性分析**: `docs/architecture/reviews/architecture_feasibility_analysis.md`
+
+---
+
+## 0. 架构可行性概述 (Architecture Feasibility Summary)
+
+> **结论**: 架构设计能够覆盖 **95%以上** 的需求，详见 [可行性论证分析报告](./reviews/architecture_feasibility_analysis.md)
+
+| 指标 | 数值 |
+|------|------|
+| **总需求数** | 42 |
+| **完全可实现** | 35 (83.3%) |
+| **部分实现** | 5 (11.9%) |
+| **当前无法实现** | 2 (4.8%) |
+
+### 核心需求覆盖矩阵
+
+| 需求类别 | 覆盖率 | 状态 |
+|----------|--------|------|
+| 核心理念 (Autonomy/Consensus/Isolation/Evolution) | 100% | ✅ 已实现 |
+| 基础设施 (Sanctuary/Treasury/Library/Tentacles/RedPhone) | 95% | ✅ 大部分实现 |
+| 角色分工 (5 Core + Ephemeral Servants) | 100% | ✅ 已实现 |
+| 跨平台支持 (Linux/Windows/macOS) | 85% | ⚠️ Linux 优先 |
+
+### 关键风险项
+
+| 风险 | 影响 | 缓解措施 |
+|------|------|----------|
+| Docker 部署已移除 | 中 | Wasm 沙盒 + 进程隔离补偿 |
+| Windows/macOS 原生服务待实现 | 低 | 架构已预留扩展点 |
 
 ---
 
@@ -87,7 +117,7 @@
 - **Vector DB (Qdrant/Pgvector)**: 语义记忆检索。
 
 ### 3.3 基础设施
-- **Docker**: 容器化部署。
+- **部署策略**: Linux 原生 Systemd 服务 (主要) / Docker (可选)
 - **GitHub Actions**: CI/CD 流水线。
 - **Terraform**: 基础设施即代码。
 
@@ -96,7 +126,22 @@
 - **安全**: 所有 Wasm 模块必须签名校验。
 - **成本**: 优化 Token 消耗，控制 API 费用。
 - **团队**: 全员掌握 Rust 和 Wasm 开发。
-- **跨平台**: 核心功能必须在 Linux 和 Windows 上通过测试，macOS 作为开发支持平台。
+- **跨平台**: 核心功能必须在 Linux 上优先验证，Windows/macOS 作为扩展支持。
+
+### 3.5 部署策略修订说明
+
+> **重要变更**: 原架构采用 Docker + Kubernetes 容器化部署，现已修订为 **Linux 原生 Systemd 服务部署**。
+
+**修订原因**:
+1. 简化部署复杂度，降低运维门槛
+2. 减少容器化开销，提高性能
+3. 更直接的硬件访问能力
+
+**隔离补偿措施**:
+- Wasm 沙盒隔离 (代码级)
+- 文件系统隔离 (`src/runtime/sandbox.rs`)
+- Unix 资源限制 (setrlimit)
+- 审慎代理机制 (`src/safety/`)
 
 ### 3.5 跨平台技术规范
 

@@ -1,210 +1,164 @@
-//! CLI tool auto-discovery — scans PATH for known CLI tools.
-//! Zero external dependencies (uses `std::process::Command` + `std::env`).
+//! CLI Discovery Module
+//!
+//! Provides utilities for discovering and managing CLI tools
+//! that may be available in the system environment.
 
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Category of a discovered CLI tool.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub enum CliCategory {
-    VersionControl,
-    Language,
-    PackageManager,
-    Container,
-    Build,
-    Cloud,
-}
-
-impl std::fmt::Display for CliCategory {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::VersionControl => write!(f, "Version Control"),
-            Self::Language => write!(f, "Language"),
-            Self::PackageManager => write!(f, "Package Manager"),
-            Self::Container => write!(f, "Container"),
-            Self::Build => write!(f, "Build"),
-            Self::Cloud => write!(f, "Cloud"),
-        }
-    }
-}
-
-/// A discovered CLI tool with metadata.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct DiscoveredCli {
+/// Information about a discovered CLI tool
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoveredTool {
+    /// Tool name
     pub name: String,
+    /// Path to the executable
     pub path: PathBuf,
+    /// Version string (if available)
     pub version: Option<String>,
-    pub category: CliCategory,
+    /// Whether the tool is available
+    pub available: bool,
 }
 
-/// Known CLI tools to scan for.
-struct KnownCli {
-    name: &'static str,
-    version_args: &'static [&'static str],
-    category: CliCategory,
+/// CLI tool discovery manager
+pub struct CliDiscovery {
+    /// Cache of discovered tools
+    cache: HashMap<String, DiscoveredTool>,
 }
 
-const KNOWN_CLIS: &[KnownCli] = &[
-    KnownCli {
-        name: "git",
-        version_args: &["--version"],
-        category: CliCategory::VersionControl,
-    },
-    KnownCli {
-        name: "python",
-        version_args: &["--version"],
-        category: CliCategory::Language,
-    },
-    KnownCli {
-        name: "python3",
-        version_args: &["--version"],
-        category: CliCategory::Language,
-    },
-    KnownCli {
-        name: "node",
-        version_args: &["--version"],
-        category: CliCategory::Language,
-    },
-    KnownCli {
-        name: "npm",
-        version_args: &["--version"],
-        category: CliCategory::PackageManager,
-    },
-    KnownCli {
-        name: "pip",
-        version_args: &["--version"],
-        category: CliCategory::PackageManager,
-    },
-    KnownCli {
-        name: "pip3",
-        version_args: &["--version"],
-        category: CliCategory::PackageManager,
-    },
-    KnownCli {
-        name: "docker",
-        version_args: &["--version"],
-        category: CliCategory::Container,
-    },
-    KnownCli {
-        name: "cargo",
-        version_args: &["--version"],
-        category: CliCategory::Build,
-    },
-    KnownCli {
-        name: "make",
-        version_args: &["--version"],
-        category: CliCategory::Build,
-    },
-    KnownCli {
-        name: "kubectl",
-        version_args: &["version", "--client", "--short"],
-        category: CliCategory::Cloud,
-    },
-    KnownCli {
-        name: "rustc",
-        version_args: &["--version"],
-        category: CliCategory::Language,
-    },
-];
-
-/// Discover available CLI tools on the system.
-/// Scans PATH for known tools and returns metadata for each found.
-pub fn discover_cli_tools(additional: &[String], excluded: &[String]) -> Vec<DiscoveredCli> {
-    let mut results = Vec::new();
-
-    for known in KNOWN_CLIS {
-        if excluded.iter().any(|e| e == known.name) {
-            continue;
-        }
-        if let Some(cli) = probe_cli(known.name, known.version_args, known.category.clone()) {
-            results.push(cli);
+impl CliDiscovery {
+    /// Create a new CLI discovery manager
+    pub fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
         }
     }
 
-    // Probe additional user-specified tools
-    for tool_name in additional {
-        if excluded.iter().any(|e| e == tool_name) {
-            continue;
+    /// Discover a tool by name
+    pub fn discover(&mut self, tool_name: &str) -> Result<DiscoveredTool> {
+        // Check cache first
+        if let Some(cached) = self.cache.get(tool_name) {
+            return Ok(cached.clone());
         }
-        // Skip if already discovered
-        if results.iter().any(|r| r.name == *tool_name) {
-            continue;
-        }
-        if let Some(cli) = probe_cli(tool_name, &["--version"], CliCategory::Build) {
-            results.push(cli);
-        }
+
+        // Try to find the tool in PATH
+        let result = which::which(tool_name);
+        
+        let tool = match result {
+            Ok(path) => {
+                let version = self.get_version(tool_name, &path).ok();
+                DiscoveredTool {
+                    name: tool_name.to_string(),
+                    path,
+                    version,
+                    available: true,
+                }
+            }
+            Err(_) => {
+                DiscoveredTool {
+                    name: tool_name.to_string(),
+                    path: PathBuf::new(),
+                    version: None,
+                    available: false,
+                }
+            }
+        };
+
+        self.cache.insert(tool_name.to_string(), tool.clone());
+        Ok(tool)
     }
 
-    results
+    /// Get version of a tool
+    fn get_version(&self, tool_name: &str, _path: &PathBuf) -> Result<String> {
+        // Common version flags
+        let version_flags = match tool_name {
+            "node" => vec!["--version"],
+            "npm" => vec!["--version"],
+            "python" => vec!["--version"],
+            "python3" => vec!["--version"],
+            "rustc" => vec!["--version"],
+            "cargo" => vec!["--version"],
+            "git" => vec!["--version"],
+            "docker" => vec!["--version"],
+            _ => vec!["--version", "-v", "-V"],
+        };
+
+        // Try to get version
+        for flag in version_flags {
+            let output = std::process::Command::new(tool_name)
+                .arg(flag)
+                .output()
+                .ok();
+
+            if let Some(output) = output {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout);
+                    return Ok(version.trim().to_string());
+                }
+            }
+        }
+
+        anyhow::bail!("Could not determine version for {}", tool_name)
+    }
+
+    /// Check if a tool is available
+    pub fn is_available(&mut self, tool_name: &str) -> bool {
+        self.discover(tool_name)
+            .map(|t| t.available)
+            .unwrap_or(false)
+    }
+
+    /// Get path to a tool
+    pub fn get_path(&mut self, tool_name: &str) -> Option<PathBuf> {
+        self.discover(tool_name)
+            .ok()
+            .filter(|t| t.available)
+            .map(|t| t.path)
+    }
+
+    /// Discover multiple tools at once
+    pub fn discover_tools(&mut self, tool_names: &[&str]) -> HashMap<String, DiscoveredTool> {
+        let mut results = HashMap::new();
+        for name in tool_names {
+            if let Ok(tool) = self.discover(name) {
+                results.insert(name.to_string(), tool);
+            }
+        }
+        results
+    }
+
+    /// Get all cached tools
+    pub fn cached_tools(&self) -> &HashMap<String, DiscoveredTool> {
+        &self.cache
+    }
+
+    /// Clear the cache
+    pub fn clear_cache(&mut self) {
+        self.cache.clear();
+    }
 }
 
-/// Probe a single CLI tool: check if it exists and get its version.
-fn probe_cli(name: &str, version_args: &[&str], category: CliCategory) -> Option<DiscoveredCli> {
-    // Try to find the tool using `which` (Unix) or `where` (Windows)
-    let path = find_executable(name)?;
-
-    // Try to get version
-    let version = get_version(name, version_args);
-
-    Some(DiscoveredCli {
-        name: name.to_string(),
-        path,
-        version,
-        category,
-    })
+impl Default for CliDiscovery {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-/// Find an executable on PATH.
-fn find_executable(name: &str) -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    let which_cmd = "where";
-    #[cfg(not(target_os = "windows"))]
-    let which_cmd = "which";
-
-    let output = std::process::Command::new(which_cmd)
-        .arg(name)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let path_str = String::from_utf8_lossy(&output.stdout);
-    let first_line = path_str.lines().next()?.trim();
-    if first_line.is_empty() {
-        return None;
-    }
-    Some(PathBuf::from(first_line))
+/// Discover CLI tools (convenience function)
+pub fn discover_cli_tools(tools: &[&str]) -> HashMap<String, DiscoveredTool> {
+    let mut discovery = CliDiscovery::new();
+    discovery.discover_tools(tools)
 }
 
-/// Get the version string of a CLI tool.
-fn get_version(name: &str, args: &[&str]) -> Option<String> {
-    let output = std::process::Command::new(name)
-        .args(args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .ok()?;
+/// Check if a CLI tool is available in PATH
+pub fn is_tool_available(tool_name: &str) -> bool {
+    which::which(tool_name).is_ok()
+}
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    // Some tools print version to stderr (e.g., pip)
-    let version_text = if stdout.trim().is_empty() {
-        stderr.trim().to_string()
-    } else {
-        stdout.trim().to_string()
-    };
-
-    // Extract first line only
-    let first_line = version_text.lines().next()?.trim().to_string();
-    if first_line.is_empty() {
-        None
-    } else {
-        Some(first_line)
-    }
+/// Get the path to a CLI tool
+pub fn get_tool_path(tool_name: &str) -> Option<PathBuf> {
+    which::which(tool_name).ok()
 }
 
 #[cfg(test)]
@@ -212,28 +166,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn discover_returns_vec() {
-        // Just verify it runs without panic
-        let results = discover_cli_tools(&[], &[]);
-        // We can't assert specific tools exist in CI, but structure is valid
-        for cli in &results {
-            assert!(!cli.name.is_empty());
+    fn test_discovery_creation() {
+        let discovery = CliDiscovery::new();
+        assert!(discovery.cache.is_empty());
+    }
+
+    #[test]
+    fn test_discover_tool() {
+        let mut discovery = CliDiscovery::new();
+        
+        // Test with a tool that should be available (sh on Unix)
+        #[cfg(unix)]
+        {
+            let result = discovery.discover("sh");
+            assert!(result.is_ok());
+            let tool = result.unwrap();
+            assert_eq!(tool.name, "sh");
+            assert!(tool.available);
         }
     }
 
     #[test]
-    fn excluded_tools_are_skipped() {
-        let results = discover_cli_tools(&[], &["git".to_string()]);
-        assert!(!results.iter().any(|r| r.name == "git"));
-    }
-
-    #[test]
-    fn category_display() {
-        assert_eq!(CliCategory::VersionControl.to_string(), "Version Control");
-        assert_eq!(CliCategory::Language.to_string(), "Language");
-        assert_eq!(CliCategory::PackageManager.to_string(), "Package Manager");
-        assert_eq!(CliCategory::Container.to_string(), "Container");
-        assert_eq!(CliCategory::Build.to_string(), "Build");
-        assert_eq!(CliCategory::Cloud.to_string(), "Cloud");
+    fn test_discover_cli_tools() {
+        let tools = discover_cli_tools(&["sh", "bash"]);
+        #[cfg(unix)]
+        assert!(tools.contains_key("sh"));
     }
 }

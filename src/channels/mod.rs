@@ -611,11 +611,8 @@ fn decrypt_optional_secret_for_runtime_reload(
 ) -> Result<()> {
     if let Some(raw) = value.clone() {
         if crate::security::SecretStore::is_encrypted(&raw) {
-            *value = Some(
-                store
-                    .decrypt(&raw)
-                    .with_context(|| format!("Failed to decrypt {field_name}"))?,
-            );
+            let decrypted = store.decrypt(&raw);
+            *value = Some(decrypted);
         }
     }
     Ok(())

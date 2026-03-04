@@ -23,7 +23,7 @@ use crate::consensus::{
 };
 
 /// Notification channel for distributing messages
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NotificationChannel {
     /// Console output
     Console,
@@ -266,6 +266,8 @@ impl Speaker {
             message_type: MessageType::Proposal,
             timestamp: Utc::now(),
             important: true,
+            channels: vec![NotificationChannel::All],
+            recipients: None,
         })
         .await;
 
@@ -296,6 +298,8 @@ impl Speaker {
             message_type: MessageType::Vote,
             timestamp: Utc::now(),
             important: true,
+            channels: vec![NotificationChannel::All],
+            recipients: None,
         })
         .await;
 
@@ -335,6 +339,8 @@ impl Speaker {
             message_type: MessageType::Result,
             timestamp: Utc::now(),
             important: true,
+            channels: vec![NotificationChannel::All],
+            recipients: None,
         })
         .await;
 
@@ -382,6 +388,8 @@ impl Speaker {
             message_type: MessageType::Normal,
             timestamp: Utc::now(),
             important: false,
+            channels: vec![NotificationChannel::All],
+            recipients: None,
         };
 
         discussion.messages.push(message.clone());

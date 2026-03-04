@@ -3,7 +3,7 @@
 //! Provides Prometheus-compatible metrics for token usage and costs
 
 use crate::economic::*;
-use prometheus::core::AtomicF64;
+use prometheus::core::{Atomic, AtomicF64};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -47,8 +47,8 @@ impl EconomicMetrics {
     pub fn record_usage(&self, usage: &TokenUsage) {
         self.tokens_total
             .fetch_add(usage.total_tokens(), Ordering::Relaxed);
-        self.cost_total_usd
-            .fetch_add(usage.cost_usd, Ordering::Relaxed);
+        let current = Atomic::get(&*self.cost_total_usd);
+        Atomic::set(&*self.cost_total_usd, current + usage.cost_usd);
         self.requests_total.fetch_add(1, Ordering::Relaxed);
 
         if usage.cached {
@@ -64,22 +64,21 @@ impl EconomicMetrics {
 
     /// Update current cost gauges
     pub fn update_costs(&self, hourly: f64, daily: f64, remaining: f64) {
-        self.current_hourly_cost.store(hourly, Ordering::Relaxed);
-        self.current_daily_cost.store(daily, Ordering::Relaxed);
-        self.budget_remaining_usd
-            .store(remaining, Ordering::Relaxed);
+        Atomic::set(&*self.current_hourly_cost, hourly);
+        Atomic::set(&*self.current_daily_cost, daily);
+        Atomic::set(&*self.budget_remaining_usd, remaining);
     }
 
     /// Export metrics in Prometheus format
     pub fn export_prometheus(&self) -> String {
         let tokens = self.tokens_total.load(Ordering::Relaxed);
-        let cost = self.cost_total_usd.load(Ordering::Relaxed);
+        let cost = Atomic::get(&*self.cost_total_usd);
         let requests = self.requests_total.load(Ordering::Relaxed);
         let hits = self.cache_hits.load(Ordering::Relaxed);
         let misses = self.cache_misses.load(Ordering::Relaxed);
-        let hourly_cost = self.current_hourly_cost.load(Ordering::Relaxed);
-        let daily_cost = self.current_daily_cost.load(Ordering::Relaxed);
-        let remaining = self.budget_remaining_usd.load(Ordering::Relaxed);
+        let hourly_cost = Atomic::get(&*self.current_hourly_cost);
+        let daily_cost = Atomic::get(&*self.current_daily_cost);
+        let remaining = Atomic::get(&*self.budget_remaining_usd);
         let latency_sum = self.latency_sum.load(Ordering::Relaxed);
         let latency_count = self.latency_count.load(Ordering::Relaxed);
 
@@ -153,26 +152,26 @@ servant_guild_avg_latency_ms {:.2}
     pub fn get_metrics(&self) -> EconomicMetricValues {
         EconomicMetricValues {
             tokens_total: self.tokens_total.load(Ordering::Relaxed),
-            cost_total_usd: self.cost_total_usd.load(Ordering::Relaxed),
+            cost_total_usd: Atomic::get(&*self.cost_total_usd),
             requests_total: self.requests_total.load(Ordering::Relaxed),
             cache_hits: self.cache_hits.load(Ordering::Relaxed),
             cache_misses: self.cache_misses.load(Ordering::Relaxed),
-            current_hourly_cost: self.current_hourly_cost.load(Ordering::Relaxed),
-            current_daily_cost: self.current_daily_cost.load(Ordering::Relaxed),
-            budget_remaining_usd: self.budget_remaining_usd.load(Ordering::Relaxed),
+            current_hourly_cost: Atomic::get(&*self.current_hourly_cost),
+            current_daily_cost: Atomic::get(&*self.current_daily_cost),
+            budget_remaining_usd: Atomic::get(&*self.budget_remaining_usd),
         }
     }
 
     /// Reset all metrics
     pub fn reset(&self) {
         self.tokens_total.store(0, Ordering::Relaxed);
-        self.cost_total_usd.store(0.0, Ordering::Relaxed);
+        Atomic::set(&*self.cost_total_usd, 0.0);
         self.requests_total.store(0, Ordering::Relaxed);
         self.cache_hits.store(0, Ordering::Relaxed);
         self.cache_misses.store(0, Ordering::Relaxed);
-        self.current_hourly_cost.store(0.0, Ordering::Relaxed);
-        self.current_daily_cost.store(0.0, Ordering::Relaxed);
-        self.budget_remaining_usd.store(0.0, Ordering::Relaxed);
+        Atomic::set(&*self.current_hourly_cost, 0.0);
+        Atomic::set(&*self.current_daily_cost, 0.0);
+        Atomic::set(&*self.budget_remaining_usd, 0.0);
         self.latency_sum.store(0, Ordering::Relaxed);
         self.latency_count.store(0, Ordering::Relaxed);
     }

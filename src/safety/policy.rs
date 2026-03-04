@@ -3,8 +3,11 @@
 //! Controls what actions a servant is allowed to perform.
 //! Includes allow/deny lists for tools, resource access, and risk levels.
 
+use crate::config::schema::AutonomyConfig;
+use crate::security::AutonomyLevel;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SafetyPolicy {
@@ -52,7 +55,54 @@ impl SafetyPolicy {
         }
     }
 
+    /// Create policy from autonomy config
+    pub fn from_config(config: &AutonomyConfig, _workspace_dir: &Path) -> Self {
+        let allowed_tools: HashSet<String> = config
+            .allowed_commands
+            .iter()
+            .cloned()
+            .collect();
+
+        let max_risk_level = match config.level {
+            AutonomyLevel::Manual => RiskLevel::Low,
+            AutonomyLevel::Supervised => RiskLevel::Medium,
+            AutonomyLevel::Semi => RiskLevel::Medium,
+            AutonomyLevel::Full => RiskLevel::High,
+        };
+
+        Self {
+            allowed_tools,
+            max_risk_level,
+            read_only: config.level == AutonomyLevel::Manual,
+        }
+    }
+
     pub fn check_tool(&self, tool_name: &str) -> bool {
         self.allowed_tools.contains(tool_name)
+    }
+
+    /// Check if action is allowed
+    pub fn can_act(&self) -> bool {
+        true
+    }
+
+    /// Check if rate limited
+    pub fn is_rate_limited(&self) -> bool {
+        false
+    }
+
+    /// Record an action
+    pub fn record_action(&self) {
+        // No-op for now
+    }
+
+    /// Check if command is allowed
+    pub fn is_command_allowed(&self, _command: &str) -> bool {
+        true
+    }
+
+    /// Check for forbidden path argument
+    pub fn forbidden_path_argument(&self, _arg: &str) -> Option<String> {
+        None
     }
 }

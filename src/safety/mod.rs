@@ -10,11 +10,16 @@ pub mod rollback;
 pub mod snapshot;
 pub mod state_recovery;
 
-pub use audit::{AuditEntry, AuditEventType, AuditLog, AuditLogger};
+pub use audit::{AuditEvent, AuditEventType, AuditLogger};
 pub use canary::{
     Anomaly, AnomalyThreshold, CanaryConfig, CanaryPhase, CanaryResult, CanaryRunner, CanaryStatus,
     CanaryTester, MetricSummary, ThresholdStatus,
 };
+
+/// Type alias for backward compatibility
+pub type AuditEntry = AuditEvent;
+/// Type alias for backward compatibility
+pub type AuditLog = AuditLogger;
 pub use policy::{RiskLevel, SafetyPolicy};
 pub use rollback::{
     RecoveryPlan, RecoveryStep, RecoveryStepType, RecoveryType, RollbackRecoveryManager,

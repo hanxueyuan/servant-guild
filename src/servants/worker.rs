@@ -344,6 +344,7 @@ impl Worker {
                     }),
                     error: Some("Max iterations exceeded".to_string()),
                     duration_ms: 0,
+                    retry_count: 0,
                 });
             }
 
@@ -368,6 +369,7 @@ impl Worker {
                     }),
                     error: None,
                     duration_ms: 0,
+                    retry_count: 0,
                 });
             }
 
@@ -406,6 +408,7 @@ impl Worker {
                         }),
                         error: result.error,
                         duration_ms: 0,
+                        retry_count: 0,
                     });
                 }
             }

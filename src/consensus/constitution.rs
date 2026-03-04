@@ -169,6 +169,8 @@ pub enum DecisionType {
     ConfigChange,
     /// System/infrastructure updates
     SystemUpdate,
+    /// Deployment updates
+    UpdateDeployment,
     /// Security policy changes
     SecurityChange,
     /// Adding new guild members

@@ -5,10 +5,12 @@
 //! - Secrets management and encryption
 //! - Input validation and sanitization
 //! - Audit logging and compliance
+//! - Pairing and authorization
 
 pub mod audit;
 pub mod encryption;
 pub mod network;
+pub mod pairing;
 pub mod secrets;
 pub mod validation;
 
@@ -17,11 +19,57 @@ use serde::{Deserialize, Serialize};
 pub use audit::{AuditEntry, AuditLog};
 pub use encryption::{EncryptionKey, Encryptor};
 pub use network::{NetworkIsolation, NetworkPolicy};
+pub use pairing::{constant_time_eq, is_public_bind, DevicePairing, PairingConfig, PairingGuard, PairingStatus};
 pub use secrets::{Secret, SecretStore, SecretsManager};
 pub use validation::{InputValidator, ValidationError};
 
 // Re-export SafetyPolicy as SecurityPolicy for compatibility
 pub use crate::safety::{RiskLevel, SafetyPolicy as SecurityPolicy};
+
+/// Autonomy level for agent operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum AutonomyLevel {
+    /// Full autonomy - agent can make all decisions
+    Full,
+    /// Semi-autonomy - agent needs approval for high-risk operations
+    #[default]
+    Semi,
+    /// Supervised - agent needs approval for most operations
+    Supervised,
+    /// Manual - all operations require human approval
+    Manual,
+}
+
+/// Domain matcher for access control
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DomainMatcher {
+    /// Pattern to match (supports wildcards)
+    pub pattern: String,
+    /// Whether to allow or deny matched domains
+    pub allow: bool,
+}
+
+impl DomainMatcher {
+    /// Create a new domain matcher
+    pub fn new(pattern: impl Into<String>, allow: bool) -> Self {
+        Self {
+            pattern: pattern.into(),
+            allow,
+        }
+    }
+
+    /// Check if a domain matches this pattern
+    pub fn matches(&self, domain: &str) -> bool {
+        if self.pattern == "*" {
+            return true;
+        }
+        if self.pattern.starts_with("*.") {
+            let suffix = &self.pattern[1..];
+            return domain.ends_with(suffix) || domain == &self.pattern[2..];
+        }
+        domain == self.pattern
+    }
+}
 
 /// Security configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

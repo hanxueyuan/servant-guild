@@ -4,13 +4,15 @@
 //! enabling autonomous compilation of Rust/Wasm components, dependency
 //! management, and artifact generation.
 
-use crate::runtime::state::HostState;
+use crate::runtime::wasm::WasmRuntime;
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use tokio::process::Command as AsyncCommand;
 use tracing::{debug, info, warn};
 
@@ -183,17 +185,14 @@ pub trait BuildAutomation: Send + Sync {
 
 /// Implementation of build automation
 pub struct BuildAutomationImpl {
-    /// Host state
-    state: HostState,
     /// Whether to use async commands
     use_async: bool,
 }
 
 impl BuildAutomationImpl {
     /// Create new build automation instance
-    pub fn new(state: HostState) -> Self {
+    pub fn new(_state: ()) -> Self {
         Self {
-            state,
             use_async: true,
         }
     }

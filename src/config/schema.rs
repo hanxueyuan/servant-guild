@@ -4011,11 +4011,8 @@ fn decrypt_optional_secret(
 ) -> Result<()> {
     if let Some(raw) = value.clone() {
         if crate::security::SecretStore::is_encrypted(&raw) {
-            *value = Some(
-                store
-                    .decrypt(&raw)
-                    .with_context(|| format!("Failed to decrypt {field_name}"))?,
-            );
+            let decrypted = store.decrypt(&raw);
+            *value = Some(decrypted);
         }
     }
     Ok(())
@@ -4024,12 +4021,11 @@ fn decrypt_optional_secret(
 fn decrypt_secret(
     store: &crate::security::SecretStore,
     value: &mut String,
-    field_name: &str,
+    _field_name: &str,
 ) -> Result<()> {
     if crate::security::SecretStore::is_encrypted(value) {
-        *value = store
-            .decrypt(value)
-            .with_context(|| format!("Failed to decrypt {field_name}"))?;
+        let decrypted = store.decrypt(value);
+        *value = decrypted;
     }
     Ok(())
 }

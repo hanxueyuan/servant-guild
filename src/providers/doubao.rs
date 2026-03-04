@@ -11,7 +11,7 @@
 //! - Token usage tracking
 
 use crate::providers::traits::{
-    ChatMessage, ChatRequest as ProviderChatRequest, ChatResponse as ProviderChatResponse,
+    ChatMessage, ChatResponse as ProviderChatResponse,
     Provider, ProviderCapabilities, TokenUsage, ToolCall as ProviderToolCall,
 };
 use crate::tools::ToolSpec;
@@ -341,28 +341,27 @@ impl Provider for DoubaoProvider {
 
     async fn chat_with_tools(
         &self,
-        request: ProviderChatRequest<'_>,
+        messages: &[ChatMessage],
+        tools: &[serde_json::Value],
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<ProviderChatResponse> {
         // Convert tools to Doubao format
-        let tools = request.tools.map(|tools| {
-            tools
-                .iter()
-                .map(|t| DoubaoToolSpec {
-                    kind: "function".to_string(),
-                    function: DoubaoToolFunctionSpec {
-                        name: t.name.clone(),
-                        description: t.description.clone(),
-                        parameters: t.parameters.clone(),
-                    },
-                })
-                .collect()
-        });
+        let doubao_tools = if tools.is_empty() {
+            None
+        } else {
+            Some(
+                tools
+                    .iter()
+                    .filter_map(|t| {
+                        serde_json::from_value::<DoubaoToolSpec>(t.clone()).ok()
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        };
 
         // Convert messages to Doubao format
-        let messages: Vec<DoubaoMessage> = request
-            .messages
+        let doubao_messages: Vec<DoubaoMessage> = messages
             .iter()
             .map(|m| DoubaoMessage {
                 role: m.role.clone(),
@@ -375,10 +374,10 @@ impl Provider for DoubaoProvider {
 
         let doubao_request = DoubaoChatRequest {
             model: model.to_string(),
-            messages,
+            messages: doubao_messages,
             temperature,
             max_tokens: self.max_tokens_override,
-            tools,
+            tools: doubao_tools,
             tool_choice: Some("auto".to_string()),
         };
 

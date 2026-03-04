@@ -3,11 +3,11 @@
 //! Provides encryption utilities for secure data storage
 
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use rand::RngCore;
+use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

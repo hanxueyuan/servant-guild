@@ -2,12 +2,19 @@
 //!
 //! Provides comprehensive audit logging for compliance and security
 
-use crate::security::*;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// Security level for operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SecurityLevel {
+    Normal,
+    Elevated,
+    Critical,
+}
 
 /// Audit log entry
 #[derive(Debug, Clone, Serialize, Deserialize)]

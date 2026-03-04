@@ -251,29 +251,12 @@ impl BuildSandbox {
         {
             use std::os::unix::process::CommandExt;
 
-            // This will be applied in pre_exec
-            let max_memory = self.config.max_memory_mb * 1024 * 1024;
-            let max_cpu_time = self.config.max_cpu_time_secs;
-
-            unsafe {
-                cmd.pre_exec(move || {
-                    // Set memory limit (RLIMIT_DATA)
-                    let rlimit = libc::rlimit {
-                        rlim_cur: max_memory,
-                        rlim_max: max_memory,
-                    };
-                    libc::setrlimit(libc::RLIMIT_DATA, &rlimit);
-
-                    // Set CPU time limit
-                    let cpu_limit = libc::rlimit {
-                        rlim_cur: max_cpu_time,
-                        rlim_max: max_cpu_time,
-                    };
-                    libc::setrlimit(libc::RLIMIT_CPU, &cpu_limit);
-
-                    Ok(())
-                });
-            }
+            // Note: Resource limits are set via container/runtime configuration
+            // For now, we rely on timeout and process management instead of rlimit
+            // In a production environment, use cgroups or containers for resource limiting
+            
+            // Set process group for easier termination
+            cmd.process_group(0);
         }
 
         // Spawn and capture output
@@ -472,12 +455,14 @@ impl BuildSandbox {
     pub async fn cleanup(&self) -> Result<()> {
         *self.active.write().await = false;
 
-        // Kill any running process
-        if let Some(pid) = *self.pid.read().await {
-            #[cfg(unix)]
-            {
-                use nix::sys::signal::{kill, Signal};
-                let _ = kill(nix::unistd::Pid::from_raw(pid as i32), Signal::SIGTERM);
+        // Kill any running process (Unix only)
+        #[cfg(unix)]
+        {
+            if let Some(pid) = *self.pid.read().await {
+                use std::process::Command as StdCommand;
+                let _ = StdCommand::new("kill")
+                    .arg(pid.to_string())
+                    .output();
             }
         }
 

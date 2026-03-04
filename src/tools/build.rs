@@ -15,13 +15,13 @@
 //! 4. Generate release package
 //! 5. Upload to GitHub Release
 
+use crate::runtime::bridges::github::GitHubBridge;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::Command;
-
-use crate::runtime::bridges::github::GitHubBridge;
 
 /// Build configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,7 +69,7 @@ pub struct BuildResult {
 /// Build tools for Wasm compilation
 pub struct BuildTools {
     /// GitHub bridge for code access
-    github: Arc<GitHubBridge>,
+    github: Arc<dyn GitHubBridge>,
     /// Working directory
     work_dir: PathBuf,
     /// Output directory for Wasm files
@@ -78,7 +78,7 @@ pub struct BuildTools {
 
 impl BuildTools {
     /// Create new Build Tools
-    pub fn new(github: Arc<GitHubBridge>, work_dir: PathBuf) -> Self {
+    pub fn new(github: Arc<dyn GitHubBridge>, work_dir: PathBuf) -> Self {
         let output_dir = work_dir.join("target/wasm32-wasi/release");
 
         Self {

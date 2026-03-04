@@ -20,7 +20,7 @@ use tokio::fs;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
-use crate::providers::LLMProvider;
+use crate::providers::Provider;
 
 /// Build error information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,7 +124,7 @@ pub struct ErrorAnalyzer {
     /// Known error patterns
     patterns: Vec<ErrorPattern>,
     /// LLM provider for complex analysis
-    llm: Option<Arc<dyn LLMProvider>>,
+    llm: Option<Arc<dyn Provider>>,
     /// Fix history
     fix_history: Arc<RwLock<Vec<FixRecord>>>,
     /// Success rates per category
@@ -159,7 +159,7 @@ impl ErrorAnalyzer {
     }
 
     /// Create an error analyzer with LLM support
-    pub fn with_llm(llm: Option<Arc<dyn LLMProvider>>) -> Self {
+    pub fn with_llm(llm: Option<Arc<dyn Provider>>) -> Self {
         let patterns = Self::build_patterns();
 
         Self {
@@ -501,7 +501,7 @@ impl ErrorAnalyzer {
         &self,
         error: &BuildError,
         context: &BuildContext,
-        llm: &Arc<dyn LLMProvider>,
+        llm: &Arc<dyn Provider>,
     ) -> Result<Option<FixSuggestion>> {
         let prompt = format!(
             r#"Analyze this Rust compiler error and suggest a fix:

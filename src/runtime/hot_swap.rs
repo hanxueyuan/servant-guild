@@ -2,19 +2,18 @@
 //!
 //! This module provides hot-swap capabilities for ServantGuild, enabling
 //! seamless runtime replacement of Wasm components without system restart.
-//! It uses Wasmtime's component model for safe module isolation and
-//! atomic swapping.
 
-use crate::runtime::state::HostState;
 use crate::runtime::wasm::WasmRuntime;
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Swap strategy
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,8 +130,6 @@ pub struct RollbackPlan {
 /// Hot-swap manager
 #[derive(Clone)]
 pub struct HotSwapManager {
-    /// Host state
-    state: HostState,
     /// Loaded modules (name -> metadata)
     modules: Arc<RwLock<HashMap<String, ModuleMetadata>>>,
     /// Active versions (name -> version)
@@ -145,9 +142,8 @@ pub struct HotSwapManager {
 
 impl HotSwapManager {
     /// Create new hot-swap manager
-    pub fn new(state: HostState, wasm_runtime: WasmRuntime) -> Self {
+    pub fn new(_state: (), wasm_runtime: WasmRuntime) -> Self {
         Self {
-            state,
             modules: Arc::new(RwLock::new(HashMap::new())),
             active_versions: Arc::new(RwLock::new(HashMap::new())),
             wasm_runtime: Arc::new(wasm_runtime),
